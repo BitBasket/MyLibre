@@ -1,0 +1,15 @@
+[Unit]
+Description=Libre glucose poller
+After=network-online.target
+
+[Service]
+Type=simple
+# Edit these two paths to match this clone.
+WorkingDirectory=/code/MyLibre
+ExecStart=/usr/bin/php /code/MyLibre/bin/poll-glucose.php
+Restart=on-failure
+RestartSec=10
+Environment=APP_ENV=production
+
+[Install]
+WantedBy=default.target

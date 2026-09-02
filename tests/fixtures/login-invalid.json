@@ -1,0 +1,8 @@
+{
+    "status": 2,
+    "data": {
+        "error": {
+            "message": "Invalid credentials"
+        }
+    }
+}

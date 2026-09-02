@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#07131a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Libre Glucose</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+    <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+    <main class="shell">
+        <header class="top">
+            <h1>Glucose</h1>
+            <p id="source-line" class="muted">local SQLite</p>
+        </header>
+
+        <section id="banner" class="banner hidden" role="status"></section>
+
+        <section class="current" aria-live="polite">
+            <p id="value" class="value">--</p>
+            <p class="unit">mg/dL</p>
+            <p id="arrow" class="arrow"></p>
+            <p id="trend" class="trend"></p>
+            <p id="age" class="age">waiting for a reading</p>
+        </section>
+
+        <nav class="ranges" aria-label="History range">
+            <button type="button" data-hours="3" class="active">3h</button>
+            <button type="button" data-hours="6">6h</button>
+            <button type="button" data-hours="12">12h</button>
+            <button type="button" data-hours="24">24h</button>
+        </nav>
+
+        <section class="chart-wrap">
+            <canvas id="chart" aria-label="Glucose history chart"></canvas>
+        </section>
+    </main>
+    <script src="/vendor/chart.umd.min.js"></script>
+    <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+    "status": 0,
+    "data": {
+        "user": {
+            "id": "11111111-1111-1111-1111-111111111111"
+        },
+        "authTicket": {
+            "token": "test-token",
+            "expires": 2000000000,
+            "duration": 15552000
+        }
+    }
+}

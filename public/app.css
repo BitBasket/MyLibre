@@ -1,0 +1,125 @@
+:root {
+    --bg: #07131a;
+    --panel: #10222c;
+    --ink: #e8f4f2;
+    --muted: #8aa4ad;
+    --fresh: #3ddc97;
+    --stale: #f4c95d;
+    --bad: #ff6b6b;
+    --line: #1d3a46;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    min-height: 100%;
+    background: radial-gradient(circle at top, #123040, var(--bg) 55%);
+    color: var(--ink);
+    font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.shell {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem 2.5rem;
+}
+
+.top h1 {
+    margin: 0;
+    font-size: 1.1rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.muted {
+    color: var(--muted);
+    margin: 0.25rem 0 0;
+}
+
+.banner {
+    margin: 1rem 0 0;
+    padding: 0.85rem 1rem;
+    border-radius: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.banner.stale {
+    background: #3d3212;
+    color: var(--stale);
+}
+
+.banner.disconnected,
+.banner.missing {
+    background: #3a1518;
+    color: var(--bad);
+}
+
+.hidden {
+    display: none;
+}
+
+.current {
+    margin: 2rem 0 1.5rem;
+    text-align: center;
+}
+
+.value {
+    margin: 0;
+    font-size: clamp(5rem, 18vw, 8rem);
+    line-height: 0.9;
+    font-weight: 800;
+}
+
+.unit {
+    margin: 0.4rem 0 0;
+    color: var(--muted);
+    letter-spacing: 0.18em;
+}
+
+.arrow {
+    margin: 1rem 0 0;
+    font-size: 3rem;
+    min-height: 3rem;
+}
+
+.trend, .age {
+    margin: 0.35rem 0 0;
+    color: var(--muted);
+}
+
+.ranges {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+
+.ranges button {
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+}
+
+.ranges button.active {
+    background: #1a6b62;
+    border-color: #2b9d90;
+}
+
+.chart-wrap {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 1rem;
+}
+
+body.fresh .value { color: var(--fresh); }
+body.stale .value { color: var(--stale); }
+body.disconnected .value,
+body.missing .value { color: var(--bad); }

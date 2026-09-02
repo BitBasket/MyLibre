@@ -1,0 +1,11 @@
+/vendor/
+/.env
+/data/*.sqlite
+/data/*.sqlite-*
+/data/libre-session.json
+/public/current.json
+/public/history.json
+/public/history-*.json
+/public/status.json
+/.phpunit.cache
+/phpunit.result.cache
