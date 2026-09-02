@@ -1,4 +1,4 @@
-const CACHE = 'mylibre-static-v3';
+const CACHE = 'mylibre-static-v8';
 const ASSETS = [
     '/',
     '/index.html',

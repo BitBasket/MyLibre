@@ -9,7 +9,7 @@ use Carbon\Carbon;
 
 interface GlucoseRepository
 {
-    public function save(GlucoseReadingDTO $reading): void;
+    public function save(GlucoseReadingDTO $reading): bool;
 
     public function latest(): ?GlucoseReadingDTO;
 
@@ -17,4 +17,9 @@ interface GlucoseRepository
      * @return GlucoseReadingDTO[]
      */
     public function since(Carbon $timestamp): array;
+
+    /**
+     * @return GlucoseReadingDTO[]
+     */
+    public function all(): array;
 }

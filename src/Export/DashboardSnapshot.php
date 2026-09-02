@@ -6,6 +6,7 @@ namespace App\Export;
 
 use App\API\ReadingPresenter;
 use App\Contract\GlucoseRepository;
+use App\DTO\GlucoseReadingDTO;
 use App\Support\Config;
 use Carbon\Carbon;
 use RuntimeException;
@@ -25,24 +26,30 @@ final class DashboardSnapshot
             throw new RuntimeException('Unable to create dashboard snapshot directory.');
         }
 
-        $latest = $this->repository->latest();
+        $history = $this->repository->all();
+        $latest = $history === [] ? null : $history[array_key_last($history)];
+        $earliest = $history[0] ?? null;
         $now = Carbon::now('UTC');
+        $days = $this->writeDailyHistory($now, $history);
 
         $this->atomicWrite('current.json', ReadingPresenter::stored($latest));
-        $this->writeDailyHistory($now);
         $this->removeLegacyHistory();
         $this->atomicWrite('status.json', [
             'ok' => true,
             'provider' => $this->config->glucoseProvider,
             'latestReadingAt' => $latest !== null ? ReadingPresenter::iso($latest->timestamp) : null,
+            'earliestReadingAt' => $earliest !== null ? ReadingPresenter::iso($earliest->timestamp) : null,
+            'historyDays' => $days,
             'browserPollSeconds' => $this->config->browserPollSeconds,
         ]);
     }
 
-    private function writeDailyHistory(Carbon $now): void
+    /**
+     * @param GlucoseReadingDTO[] $history
+     * @return list<string>
+     */
+    private function writeDailyHistory(Carbon $now, array $history): array
     {
-        $from = $now->copy()->startOfDay()->subDay();
-        $history = $this->repository->since($from);
         $byDay = [];
 
         foreach ($history as $reading) {
@@ -55,11 +62,15 @@ final class DashboardSnapshot
             $byDay[$today] = [];
         }
 
+        ksort($byDay);
+
         foreach ($byDay as $day => $readings) {
             $this->atomicWrite('history-' . $day . '.json', [
                 'readings' => ReadingPresenter::history($readings),
             ]);
         }
+
+        return array_map(static fn (int|string $day): string => (string) $day, array_keys($byDay));
     }
 
     private function removeLegacyHistory(): void

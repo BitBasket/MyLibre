@@ -24,7 +24,7 @@ Abbott-specific URLs, headers, region names, account IDs, and JSON field names s
 
 `phpexperts/simple-dto` is the contract for `GlucoseReadingDTO` and `LibreLinkUpSessionDTO`. Those objects are immutable. Session token refresh creates a new DTO rather than mutating the old one.
 
-The poller is the only process that calls LibreLinkUp, about every 60 seconds. After each successful poll it writes `public/current.json`, `public/history-{YYYYMMDD}.json` (UTC calendar days), and `public/status.json`. The browser fetches those files about every 5 seconds and computes age/stale flags from the reading timestamp. Any static file server (PHP's built-in server or `./run-nginx.sh`) is enough for the UI.
+The poller is the only process that calls LibreLinkUp, about every 60 seconds. After each successful poll it stores the latest reading plus any graph history Abbott still has (`INSERT OR IGNORE`), then writes `public/current.json`, `public/history-{YYYYMMDD}.json` (UTC calendar days), and `public/status.json`. The browser fetches those files about every 5 seconds and computes age/stale flags from the reading timestamp. Any static file server (PHP's built-in server or `./run-nginx.sh`) is enough for the UI.
 
 This is a display. It does not recommend insulin, invent missing points, or alter Abbott values.
 
@@ -140,7 +140,7 @@ rm -f data/libre-session.json
 
 ## Troubleshooting
 
-**Stale dashboard:** the PWA is reading `public/current.json`. If age is over 3 minutes the UI warns; over 10 minutes it treats the feed as disconnected. Check that `php bin/poll-glucose.php` is running and that LibreLink EG still has an active sensor session.
+**Stale dashboard:** the PWA is reading `public/current.json`. If age is over 3 minutes the UI warns; over 10 minutes it treats the feed as disconnected. Check that `php bin/poll-glucose.php` is running and that LibreLink EG still has an active sensor session. After the laptop wakes, the next poll backfills whatever LibreLinkUp `graphData` still contains (typically ~15-minute samples over a limited window, not every missed 1-minute point).
 
 **Authentication failed:** confirm LibreLinkUp email/password in `.env`, accept any pending terms in the official app, and try `LIBRELINK_REGION=AUTO`. If Abbott starts requiring a newer client string, raise `LIBRELINK_CLIENT_VERSION`.
 

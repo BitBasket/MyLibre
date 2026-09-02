@@ -22,7 +22,7 @@ final class GlucosePoller
         private readonly GlucoseRepository $repository,
         private readonly Logger $logger,
         private readonly int $intervalSeconds,
-        private readonly bool $seedHistoryWhenEmpty = true,
+        private readonly bool $persistHistory = true,
         private readonly ?DashboardSnapshot $snapshot = null,
     ) {
     }
@@ -46,16 +46,28 @@ final class GlucosePoller
         $delay = $currentDelay ?? $this->intervalSeconds;
 
         try {
-            if ($this->seedHistoryWhenEmpty && $this->repository->latest() === null) {
-                foreach ($this->provider->getHistory() as $reading) {
-                    $this->repository->save($reading);
-                }
-                $this->logger->info('Seeded glucose history');
+            $readings = $this->persistHistory
+                ? $this->provider->getHistory()
+                : [$this->provider->getCurrentReading()];
+
+            if ($readings === []) {
+                $readings[] = $this->provider->getCurrentReading();
             }
 
-            $reading = $this->provider->getCurrentReading();
-            $this->repository->save($reading);
-            $this->logger->info('Stored glucose reading ' . $reading->glucoseMgDl . ' mg/dL');
+            $inserted = 0;
+            foreach ($readings as $reading) {
+                if ($this->repository->save($reading)) {
+                    $inserted++;
+                }
+            }
+
+            $latest = $this->repository->latest();
+            if ($latest !== null) {
+                $this->logger->info('Stored glucose reading ' . $latest->glucoseMgDl . ' mg/dL');
+            }
+            if ($inserted > 1) {
+                $this->logger->info('Saved ' . $inserted . ' new glucose readings');
+            }
             $this->export();
 
             return $this->intervalSeconds;

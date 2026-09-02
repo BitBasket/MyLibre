@@ -36,9 +36,9 @@ final class SQLiteGlucoseRepositoryTest extends TestCase
             'source' => 'librelinkup',
         ]);
 
-        $this->repository->save($first);
-        $this->repository->save($first);
-        $this->repository->save($second);
+        $this->assertTrue($this->repository->save($first));
+        $this->assertFalse($this->repository->save($first));
+        $this->assertTrue($this->repository->save($second));
 
         $latest = $this->repository->latest();
         $this->assertNotNull($latest);
@@ -49,5 +49,10 @@ final class SQLiteGlucoseRepositoryTest extends TestCase
         $this->assertCount(2, $history);
         $this->assertSame(174, $history[0]->glucoseMgDl);
         $this->assertInstanceOf(GlucoseReadingDTO::class, $history[0]);
+
+        $all = $this->repository->all();
+        $this->assertCount(2, $all);
+        $this->assertSame(174, $all[0]->glucoseMgDl);
+        $this->assertSame(176, $all[1]->glucoseMgDl);
     }
 }

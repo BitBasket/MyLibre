@@ -56,6 +56,8 @@ final class DashboardSnapshotTest extends TestCase
         $this->assertSame('mock', $status['provider']);
         $this->assertSame('2026-09-01T19:31:00Z', $status['latestReadingAt']);
         $this->assertSame(5, $status['browserPollSeconds']);
+        $this->assertSame(['20260901'], $status['historyDays']);
+        $this->assertSame('2026-09-01T19:31:00Z', $status['earliestReadingAt']);
         $this->assertArrayNotHasKey('password', $status);
     }
 
@@ -68,6 +70,13 @@ final class DashboardSnapshotTest extends TestCase
         file_put_contents($directory . '/history.json', '{"readings":[]}');
 
         $repository = new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:'));
+        $repository->save(new GlucoseReadingDTO([
+            'timestamp' => '2026-08-31T20:13:00Z',
+            'glucoseMgDl' => 110,
+            'trend' => 'stable',
+            'trendArrow' => '→',
+            'source' => 'librelinkup',
+        ]));
         $repository->save(new GlucoseReadingDTO([
             'timestamp' => '2026-09-01T23:50:00Z',
             'glucoseMgDl' => 120,
@@ -90,13 +99,19 @@ final class DashboardSnapshotTest extends TestCase
         );
         $snapshot->write();
 
+        $older = json_decode((string) file_get_contents($directory . '/history-20260831.json'), true);
         $yesterday = json_decode((string) file_get_contents($directory . '/history-20260901.json'), true);
         $today = json_decode((string) file_get_contents($directory . '/history-20260902.json'), true);
+        $status = json_decode((string) file_get_contents($directory . '/status.json'), true);
 
+        $this->assertCount(1, $older['readings']);
+        $this->assertSame('2026-08-31T20:13:00Z', $older['readings'][0]['timestamp']);
         $this->assertCount(1, $yesterday['readings']);
         $this->assertSame('2026-09-01T23:50:00Z', $yesterday['readings'][0]['timestamp']);
         $this->assertCount(1, $today['readings']);
         $this->assertSame('2026-09-02T00:10:00Z', $today['readings'][0]['timestamp']);
+        $this->assertSame(['20260831', '20260901', '20260902'], $status['historyDays']);
+        $this->assertSame('2026-08-31T20:13:00Z', $status['earliestReadingAt']);
         $this->assertFileDoesNotExist($directory . '/history.json');
     }
 
@@ -122,6 +137,8 @@ final class DashboardSnapshotTest extends TestCase
         $this->assertNull($current['timestamp']);
         $this->assertSame([], $history['readings']);
         $this->assertNull($status['latestReadingAt']);
+        $this->assertNull($status['earliestReadingAt']);
+        $this->assertSame(['20260902'], $status['historyDays']);
         $this->assertFileDoesNotExist($directory . '/history.json');
     }
 }

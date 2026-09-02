@@ -33,10 +33,23 @@
             <button type="button" data-hours="6">6h</button>
             <button type="button" data-hours="12">12h</button>
             <button type="button" data-hours="24">24h</button>
+            <button type="button" data-hours="168">7d</button>
+            <button type="button" data-hours="all">All</button>
         </nav>
 
         <section class="chart-wrap">
-            <canvas id="chart" aria-label="Glucose history chart"></canvas>
+            <div class="chart-toolbar">
+                <p id="chart-window" class="chart-window">last 3 hours</p>
+                <p id="chart-stats" class="chart-stats"></p>
+            </div>
+            <div class="chart-main">
+                <canvas id="chart" aria-label="Glucose history chart"></canvas>
+                <div id="chart-tooltip" class="chart-tooltip hidden" role="tooltip"></div>
+            </div>
+            <div class="chart-overview-wrap">
+                <canvas id="chart-overview" aria-label="Full glucose history navigator"></canvas>
+            </div>
+            <p class="chart-hint">Hover any minute · scroll to zoom · drag to pan · drag the window to scrub all history</p>
         </section>
     </main>
     <script src="/vendor/chart.umd.min.js"></script>

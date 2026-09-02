@@ -16,7 +16,7 @@ final class SQLiteGlucoseRepository implements GlucoseRepository
     ) {
     }
 
-    public function save(GlucoseReadingDTO $reading): void
+    public function save(GlucoseReadingDTO $reading): bool
     {
         $statement = $this->pdo->prepare(
             'INSERT OR IGNORE INTO glucose_readings
@@ -32,6 +32,8 @@ final class SQLiteGlucoseRepository implements GlucoseRepository
             ':trend_arrow' => $reading->trendArrow,
             ':source' => $reading->source,
         ]);
+
+        return $statement->rowCount() > 0;
     }
 
     public function latest(): ?GlucoseReadingDTO
@@ -56,8 +58,28 @@ final class SQLiteGlucoseRepository implements GlucoseRepository
         );
         $statement->execute([':timestamp' => $timestamp->getTimestamp()]);
 
+        return $this->hydrateAll($statement);
+    }
+
+    public function all(): array
+    {
+        $rows = $this->pdo->query(
+            'SELECT timestamp, glucose_mg_dl, trend, trend_arrow, source
+             FROM glucose_readings
+             ORDER BY timestamp ASC'
+        );
+
+        return $this->hydrateAll($rows);
+    }
+
+    /**
+     * @param iterable<array<string, mixed>> $rows
+     * @return GlucoseReadingDTO[]
+     */
+    private function hydrateAll(iterable $rows): array
+    {
         $readings = [];
-        foreach ($statement as $row) {
+        foreach ($rows as $row) {
             $readings[] = $this->hydrate($row);
         }
 

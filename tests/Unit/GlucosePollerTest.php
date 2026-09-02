@@ -159,4 +159,63 @@ final class GlucosePollerTest extends TestCase
         $current = json_decode((string) file_get_contents($directory . '/current.json'), true);
         $this->assertSame(174, $current['glucoseMgDl']);
     }
+
+    public function testBackfillsGapFromGraphHistory(): void
+    {
+        $gap = new GlucoseReadingDTO([
+            'timestamp' => '2026-09-01T19:15:00Z',
+            'glucoseMgDl' => 160,
+            'trend' => 'stable',
+            'trendArrow' => '→',
+        ]);
+        $current = new GlucoseReadingDTO([
+            'timestamp' => '2026-09-01T19:31:00Z',
+            'glucoseMgDl' => 174,
+            'trend' => 'falling',
+            'trendArrow' => '↘',
+        ]);
+        $provider = new class($gap, $current) implements GlucoseProvider {
+            public function __construct(
+                private GlucoseReadingDTO $gap,
+                private GlucoseReadingDTO $current,
+            ) {
+            }
+
+            public function authenticate(): LibreLinkUpSessionDTO
+            {
+                return new LibreLinkUpSessionDTO([
+                    'token' => 'x',
+                    'baseUri' => 'https://api.libreview.io/',
+                ]);
+            }
+
+            public function getCurrentReading(): GlucoseReadingDTO
+            {
+                return $this->current;
+            }
+
+            public function getHistory(): array
+            {
+                return [$this->gap, $this->current];
+            }
+        };
+
+        $repository = new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:'));
+        $repository->save(new GlucoseReadingDTO([
+            'timestamp' => '2026-09-01T19:00:00Z',
+            'glucoseMgDl' => 150,
+            'trend' => 'stable',
+            'trendArrow' => '→',
+        ]));
+        $poller = new GlucosePoller($provider, $repository, new Logger(fopen('php://memory', 'ab')), 60);
+
+        $this->assertSame(60, $poller->poll());
+        $this->assertSame(174, $repository->latest()?->glucoseMgDl);
+        $history = $repository->all();
+        $this->assertCount(3, $history);
+        $this->assertSame(160, $history[1]->glucoseMgDl);
+
+        $this->assertSame(60, $poller->poll());
+        $this->assertCount(3, $repository->all());
+    }
 }
