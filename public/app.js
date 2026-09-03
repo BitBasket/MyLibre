@@ -11,7 +11,8 @@
     const RANGE_DARK_RED = '#b71c1c';
     const FILL_ALPHA = 0.55;
     const MIN_WINDOW_MS = 15 * 60 * 1000;
-    const GAP_MS = 7 * 60 * 1000;
+    // LibreLinkUp graphData is ~15-minute samples; keep those connected after a backfill.
+    const GAP_MS = 20 * 60 * 1000;
     const MINUTE_MS = 60 * 1000;
 
     const valueEl = document.getElementById('value');
@@ -731,6 +732,20 @@
         },
     };
 
+    function pointRadiusAt(points, index, lastDot) {
+        const point = points[index];
+        if (!point || point.y == null) {
+            return 0;
+        }
+        if (lastDot && index === points.length - 1) {
+            return 3.5;
+        }
+        const prev = points[index - 1];
+        const next = points[index + 1];
+        const isolated = (!prev || prev.y == null) && (!next || next.y == null);
+        return isolated ? 3 : 0;
+    }
+
     function dataset(points, { lastDot = false } = {}) {
         return {
             data: points,
@@ -739,9 +754,7 @@
             fill: true,
             tension: 0.15,
             spanGaps: false,
-            pointRadius: lastDot
-                ? (ctx) => (ctx.dataIndex === points.length - 1 && points[ctx.dataIndex]?.y != null ? 3.5 : 0)
-                : 0,
+            pointRadius: (ctx) => pointRadiusAt(points, ctx.dataIndex, lastDot),
             pointBackgroundColor: (ctx) => colorForGlucose(ctx.parsed?.y ?? ctx.raw?.y),
             pointBorderColor: (ctx) => colorForGlucose(ctx.parsed?.y ?? ctx.raw?.y),
             pointHoverRadius: 0,
