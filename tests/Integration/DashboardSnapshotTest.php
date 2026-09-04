@@ -57,6 +57,8 @@ final class DashboardSnapshotTest extends TestCase
         $this->assertSame('2026-09-01T19:31:00Z', $status['latestReadingAt']);
         $this->assertSame(5, $status['browserPollSeconds']);
         $this->assertSame(['20260901'], $status['historyDays']);
+        $this->assertArrayHasKey('20260901', $status['historyRevisions']);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $status['historyRevisions']['20260901']);
         $this->assertSame('2026-09-01T19:31:00Z', $status['earliestReadingAt']);
         $this->assertArrayNotHasKey('password', $status);
     }
@@ -140,5 +142,44 @@ final class DashboardSnapshotTest extends TestCase
         $this->assertNull($status['earliestReadingAt']);
         $this->assertSame(['20260902'], $status['historyDays']);
         $this->assertFileDoesNotExist($directory . '/history.json');
+    }
+
+    public function testHistoryRevisionsAreStableAndChangeWhenBackfilledDataIsAdded(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-03T10:00:00Z'));
+
+        $directory = sys_get_temp_dir() . '/mylibre-snapshot-' . uniqid('', true);
+        mkdir($directory);
+        $repository = new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:'));
+        $repository->save(new GlucoseReadingDTO([
+            'timestamp' => '2026-09-01T12:00:00Z',
+            'glucoseMgDl' => 110,
+            'trend' => 'stable',
+            'trendArrow' => '→',
+            'source' => 'mock',
+        ]));
+
+        $snapshot = new DashboardSnapshot($repository, ConfigFactory::make(provider: 'mock'), $directory);
+        $snapshot->write();
+        $first = json_decode((string) file_get_contents($directory . '/status.json'), true);
+        $snapshot->write();
+        $second = json_decode((string) file_get_contents($directory . '/status.json'), true);
+
+        $this->assertSame($first['historyRevisions'], $second['historyRevisions']);
+
+        $repository->save(new GlucoseReadingDTO([
+            'timestamp' => '2026-09-01T13:00:00Z',
+            'glucoseMgDl' => 115,
+            'trend' => 'rising',
+            'trendArrow' => '↗',
+            'source' => 'mock',
+        ]));
+        $snapshot->write();
+        $third = json_decode((string) file_get_contents($directory . '/status.json'), true);
+
+        $this->assertNotSame(
+            $first['historyRevisions']['20260901'],
+            $third['historyRevisions']['20260901'],
+        );
     }
 }

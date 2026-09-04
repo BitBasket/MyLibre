@@ -19,6 +19,7 @@ $poller = new App\Poller\GlucosePoller(
     $app->repository(),
     $app->logger,
     $app->config->abbottPollSeconds,
+    persistHistory: true,
     snapshot: $snapshot,
 );
 

@@ -30,7 +30,7 @@ final class DashboardSnapshot
         $latest = $history === [] ? null : $history[array_key_last($history)];
         $earliest = $history[0] ?? null;
         $now = Carbon::now('UTC');
-        $days = $this->writeDailyHistory($now, $history);
+        [$days, $revisions] = $this->writeDailyHistory($now, $history);
 
         $this->atomicWrite('current.json', ReadingPresenter::stored($latest));
         $this->removeLegacyHistory();
@@ -40,13 +40,14 @@ final class DashboardSnapshot
             'latestReadingAt' => $latest !== null ? ReadingPresenter::iso($latest->timestamp) : null,
             'earliestReadingAt' => $earliest !== null ? ReadingPresenter::iso($earliest->timestamp) : null,
             'historyDays' => $days,
+            'historyRevisions' => $revisions,
             'browserPollSeconds' => $this->config->browserPollSeconds,
         ]);
     }
 
     /**
      * @param GlucoseReadingDTO[] $history
-     * @return list<string>
+     * @return array{list<string>, array<string, string>}
      */
     private function writeDailyHistory(Carbon $now, array $history): array
     {
@@ -64,13 +65,16 @@ final class DashboardSnapshot
 
         ksort($byDay);
 
+        $revisions = [];
         foreach ($byDay as $day => $readings) {
+            $serialized = ReadingPresenter::history($readings);
             $this->atomicWrite('history-' . $day . '.json', [
-                'readings' => ReadingPresenter::history($readings),
+                'readings' => $serialized,
             ]);
+            $revisions[(string) $day] = hash('sha256', json_encode($serialized, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
         }
 
-        return array_map(static fn (int|string $day): string => (string) $day, array_keys($byDay));
+        return [array_map(static fn (int|string $day): string => (string) $day, array_keys($byDay)), $revisions];
     }
 
     private function removeLegacyHistory(): void

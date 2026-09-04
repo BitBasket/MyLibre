@@ -36,6 +36,7 @@
     let offline = false;
     let allReadings = [];
     let historyCache = new Map();
+    let historyRevisions = new Map();
     let discoveredDays = null;
     let viewStart = null;
     let viewEnd = null;
@@ -172,13 +173,25 @@
         return discoveredDays;
     }
 
-    async function loadHistory(days) {
+    async function loadHistory(days, status = {}) {
         const today = utcYmd(new Date());
         const yesterday = addUtcDays(today, -1);
+        const listedDays = new Set(days);
+        for (const day of historyCache.keys()) {
+            if (!listedDays.has(day)) {
+                historyCache.delete(day);
+                historyRevisions.delete(day);
+            }
+        }
+        const revisions = status && status.historyRevisions && typeof status.historyRevisions === 'object'
+            ? status.historyRevisions
+            : null;
         const fetches = [];
 
         for (const day of days) {
-            if (day !== today && day !== yesterday && historyCache.has(day)) {
+            const revision = revisions ? revisions[day] : null;
+            const revisionChanged = revisions && revision != null && historyRevisions.get(day) !== revision;
+            if (day !== today && day !== yesterday && historyCache.has(day) && !revisionChanged) {
                 continue;
             }
             fetches.push((async () => {
@@ -191,6 +204,9 @@
                 }
                 const payload = await readJson(response);
                 historyCache.set(day, payload.readings || []);
+                if (revisions && revision != null) {
+                    historyRevisions.set(day, revision);
+                }
             })());
         }
 
@@ -548,6 +564,34 @@
         return sampled;
     }
 
+    function overviewSeries(points, maxPoints) {
+        if (!points.length) {
+            return [];
+        }
+        const sorted = [...points].sort((a, b) => a.x - b.x);
+        const segments = [];
+        let segment = [sorted[0]];
+        for (let i = 1; i < sorted.length; i += 1) {
+            if (sorted[i].x - sorted[i - 1].x > GAP_MS) {
+                segments.push(segment);
+                segment = [];
+            }
+            segment.push(sorted[i]);
+        }
+        segments.push(segment);
+
+        const total = sorted.length;
+        const series = [];
+        segments.forEach((part, index) => {
+            const budget = Math.max(2, Math.round(maxPoints * part.length / total));
+            series.push(...downsample(part, budget));
+            if (index < segments.length - 1) {
+                series.push({ x: part[part.length - 1].x + 1, y: null, reading: null });
+            }
+        });
+        return series;
+    }
+
     function renderStats(points) {
         windowEl.textContent = formatWindowLabel(viewStart, viewEnd);
         const values = points.map((point) => point.y).filter((value) => value != null);
@@ -826,7 +870,7 @@
         const spanMs = Math.max(1, viewEnd - viewStart);
         const windowReadings = visibleReadings(readings, viewStart, viewEnd);
         const mainPoints = withGaps(toPoints(windowReadings));
-        const overviewPoints = withGaps(downsample(toPoints(readings), 800));
+        const overviewPoints = overviewSeries(toPoints(readings), 800);
         const y = yLimits(mainPoints);
         const bounds = dataBounds(readings);
 
@@ -836,7 +880,7 @@
         chart.options.scales = commonScaleOptions(spanMs, y);
         chart.update('none');
 
-        overviewChart.data.datasets[0] = dataset(overviewPoints);
+        overviewChart.data.datasets[0] = dataset(overviewPoints, { lastDot: true });
         overviewChart.options.scales.x.min = bounds.start;
         overviewChart.options.scales.x.max = Math.max(bounds.end, Date.now());
         overviewChart.options.scales.y.min = yLimits(overviewPoints).min;
@@ -1019,7 +1063,7 @@
             offline = false;
             const current = await readJson(currentRes);
             const status = isJsonResponse(statusRes) ? await readJson(statusRes) : {};
-            const readings = await loadHistory(await resolveHistoryDays(status));
+            const readings = await loadHistory(await resolveHistoryDays(status), status);
             renderCurrent(current);
             renderChart(readings);
             if (statusRes.ok) {
