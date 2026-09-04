@@ -15,10 +15,185 @@ use App\LibreLink\LibreLinkRateLimitException;
 use App\Poller\GlucosePoller;
 use App\Support\Logger;
 use App\Tests\Support\ConfigFactory;
+use Carbon\Carbon;
 use PHPUnit\Framework\TestCase;
 
 final class GlucosePollerTest extends TestCase
 {
+    public function testStaleThenFreshResponseReportsSensorRestored(): void
+    {
+        Carbon::setTestNow('2026-09-04T09:10:00Z');
+        try {
+            $stale = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:02:00Z', 'glucoseMgDl' => 150, 'trend' => null, 'trendArrow' => null]);
+            $fresh = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:10:00Z', 'glucoseMgDl' => 151, 'trend' => null, 'trendArrow' => null]);
+            $provider = new class($stale, $fresh) implements GlucoseProvider {
+                private int $calls = 0;
+                public function __construct(private GlucoseReadingDTO $stale, private GlucoseReadingDTO $fresh) {}
+                public function authenticate(): LibreLinkUpSessionDTO { return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']); }
+                public function getCurrentReading(): GlucoseReadingDTO { return $this->calls++ === 0 ? $this->stale : $this->fresh; }
+                public function getHistory(): array { return [$this->getCurrentReading()]; }
+            };
+            $stream = fopen('php://memory', 'w+b');
+            $poller = new GlucosePoller($provider, new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:')), new Logger($stream), 60, false);
+            $poller->poll();
+            $poller->poll();
+            rewind($stream);
+            $log = stream_get_contents($stream);
+            $this->assertStringContainsString('SENSOR LOST', $log);
+            $this->assertStringContainsString('SENSOR RESTORED', $log);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function testDuplicateIntermediateTimestampsCountOnce(): void
+    {
+        Carbon::setTestNow('2026-09-04T09:03:00Z');
+        try {
+            $old = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:41:00Z', 'glucoseMgDl' => 140, 'trend' => null, 'trendArrow' => null]);
+            $mid = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:56:00Z', 'glucoseMgDl' => 145, 'trend' => null, 'trendArrow' => null]);
+            $new = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:02:00Z', 'glucoseMgDl' => 150, 'trend' => null, 'trendArrow' => null]);
+            $provider = new class($mid, $new) implements GlucoseProvider {
+                public function __construct(private GlucoseReadingDTO $mid, private GlucoseReadingDTO $new) {}
+                public function authenticate(): LibreLinkUpSessionDTO { return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']); }
+                public function getCurrentReading(): GlucoseReadingDTO { return $this->new; }
+                public function getHistory(): array { return [$this->mid, $this->mid, $this->new]; }
+            };
+            $repository = new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:'));
+            $repository->save($old);
+            $stream = fopen('php://memory', 'w+b');
+            (new GlucosePoller($provider, $repository, new Logger($stream), 60))->poll();
+            rewind($stream);
+            $this->assertStringContainsString('expected 20 intermediate readings, supplied 1, newly saved 1, missing 19', stream_get_contents($stream));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function testLongGapReportsExpectedAndMissingBackfill(): void
+    {
+        Carbon::setTestNow('2026-09-04T08:39:51Z');
+        try {
+            $old = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:00:00Z', 'glucoseMgDl' => 140, 'trend' => null, 'trendArrow' => null]);
+            $midOne = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:10:00Z', 'glucoseMgDl' => 145, 'trend' => null, 'trendArrow' => null]);
+            $midTwo = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:20:00Z', 'glucoseMgDl' => 146, 'trend' => null, 'trendArrow' => null]);
+            $new = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:39:51Z', 'glucoseMgDl' => 150, 'trend' => null, 'trendArrow' => null]);
+            $provider = new class($midOne, $midTwo, $new) implements GlucoseProvider {
+                public function __construct(private GlucoseReadingDTO $midOne, private GlucoseReadingDTO $midTwo, private GlucoseReadingDTO $new) {}
+                public function authenticate(): LibreLinkUpSessionDTO { return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']); }
+                public function getCurrentReading(): GlucoseReadingDTO { return $this->new; }
+                public function getHistory(): array { return [$this->midOne, $this->midTwo, $this->new]; }
+            };
+            $repository = new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:'));
+            $repository->save($old);
+            $stream = fopen('php://memory', 'w+b');
+            (new GlucosePoller($provider, $repository, new Logger($stream), 60))->poll();
+            rewind($stream);
+            $log = stream_get_contents($stream);
+            $this->assertStringContainsString('expected 39 intermediate readings, supplied 2, newly saved 2, missing 37', $log);
+            $this->assertStringContainsString('BACKFILL INCOMPLETE', $log);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function testStaleSuccessfulResponseLogsSensorLostAndSuppressesStoredMessage(): void
+    {
+        Carbon::setTestNow('2026-09-04T09:10:00Z');
+        try {
+            $reading = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:02:00Z', 'glucoseMgDl' => 150, 'trend' => null, 'trendArrow' => null]);
+            $provider = new class($reading) implements GlucoseProvider {
+                public function __construct(private GlucoseReadingDTO $reading) {}
+                public function authenticate(): LibreLinkUpSessionDTO { return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']); }
+                public function getCurrentReading(): GlucoseReadingDTO { return $this->reading; }
+                public function getHistory(): array { return [$this->reading]; }
+            };
+            $stream = fopen('php://memory', 'w+b');
+            $repository = new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:'));
+            $repository->save(new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:41:00Z', 'glucoseMgDl' => 140, 'trend' => null, 'trendArrow' => null]));
+            $poller = new GlucosePoller($provider, $repository, new Logger($stream), 60, true);
+            $poller->poll();
+            rewind($stream);
+            $log = stream_get_contents($stream);
+            $this->assertStringContainsString('SENSOR LOST', $log);
+            $this->assertStringContainsString('8 minutes 0 seconds old', $log);
+            $this->assertStringNotContainsString('Stored glucose reading', $log);
+            $this->assertStringNotContainsString('SENSOR RESTORED', $log);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function testSensorLostAgeUsesHoursMinutesAndSeconds(): void
+    {
+        Carbon::setTestNow('2026-09-04T09:10:00Z');
+        try {
+            $reading = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:08:55Z', 'glucoseMgDl' => 150, 'trend' => null, 'trendArrow' => null]);
+            $provider = new class($reading) implements GlucoseProvider {
+                public function __construct(private GlucoseReadingDTO $reading) {}
+                public function authenticate(): LibreLinkUpSessionDTO { return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']); }
+                public function getCurrentReading(): GlucoseReadingDTO { return $this->reading; }
+                public function getHistory(): array { return [$this->reading]; }
+            };
+            $stream = fopen('php://memory', 'w+b');
+            (new GlucosePoller($provider, new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:')), new Logger($stream), 60, false))->poll();
+            rewind($stream);
+            $this->assertStringContainsString('1 hour 1 minute 5 seconds old', stream_get_contents($stream));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function testRecoveryLogsIntermediateBackfillCount(): void
+    {
+        Carbon::setTestNow('2026-09-04T09:03:00Z');
+        try {
+            $old = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:41:00Z', 'glucoseMgDl' => 140, 'trend' => null, 'trendArrow' => null]);
+            $mid = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:56:00Z', 'glucoseMgDl' => 145, 'trend' => null, 'trendArrow' => null]);
+            $new = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:02:00Z', 'glucoseMgDl' => 150, 'trend' => null, 'trendArrow' => null]);
+            $provider = new class($mid, $new) implements GlucoseProvider {
+                public function __construct(private GlucoseReadingDTO $mid, private GlucoseReadingDTO $new) {}
+                public function authenticate(): LibreLinkUpSessionDTO { return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']); }
+                public function getCurrentReading(): GlucoseReadingDTO { return $this->new; }
+                public function getHistory(): array { return [$this->mid, $this->new]; }
+            };
+            $repository = new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:'));
+            $repository->save($old);
+            $stream = fopen('php://memory', 'w+b');
+            (new GlucosePoller($provider, $repository, new Logger($stream), 60))->poll();
+            rewind($stream);
+            $log = stream_get_contents($stream);
+            $this->assertStringContainsString('READING GAP', $log);
+            $this->assertStringContainsString('expected 20 intermediate readings, supplied 1, newly saved 1, missing 19', $log);
+            $this->assertStringNotContainsString('SENSOR RESTORED', $log);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function testRecoveryWithoutIntermediateLogsIncompleteBackfill(): void
+    {
+        Carbon::setTestNow('2026-09-04T09:03:00Z');
+        try {
+            $old = new GlucoseReadingDTO(['timestamp' => '2026-09-04T08:41:00Z', 'glucoseMgDl' => 140, 'trend' => null, 'trendArrow' => null]);
+            $new = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:02:00Z', 'glucoseMgDl' => 150, 'trend' => null, 'trendArrow' => null]);
+            $provider = new class($new) implements GlucoseProvider {
+                public function __construct(private GlucoseReadingDTO $new) {}
+                public function authenticate(): LibreLinkUpSessionDTO { return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']); }
+                public function getCurrentReading(): GlucoseReadingDTO { return $this->new; }
+                public function getHistory(): array { return [$this->new]; }
+            };
+            $repository = new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:'));
+            $repository->save($old);
+            $stream = fopen('php://memory', 'w+b');
+            (new GlucosePoller($provider, $repository, new Logger($stream), 60))->poll();
+            rewind($stream);
+            $this->assertStringContainsString('BACKFILL INCOMPLETE for gap', stream_get_contents($stream));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
     public function testDuplicateTimestampIsSuccess(): void
     {
         $reading = new GlucoseReadingDTO([

@@ -140,7 +140,7 @@ rm -f data/libre-session.json
 
 ## Troubleshooting
 
-**Stale dashboard:** the PWA is reading `public/current.json`. If age is over 3 minutes the UI warns; over 10 minutes it treats the feed as disconnected. Check that `php bin/poll-glucose.php` is running and that LibreLink EG still has an active sensor session. After the laptop wakes, the next poll backfills whatever LibreLinkUp `graphData` still contains (typically ~15-minute samples over a limited window, not every missed 1-minute point).
+**Stale dashboard:** the PWA is reading `public/current.json`. If age is over 3 minutes the UI warns; over 10 minutes it treats the feed as disconnected. Check that `php bin/poll-glucose.php` is running and that LibreLink EG still has an active sensor session. The poller logs `SENSOR LOST` when a successful response is already more than three minutes old, and `SENSOR RESTORED` only after a later fresh response in the same running process. Any >3-minute timestamp jump is reported as `READING GAP`; it estimates expected one-minute intermediate readings from the configured poll interval and logs expected, supplied, newly saved, and missing counts. A gap is `BACKFILL INCOMPLETE` whenever supplied history is below that expected cadence. Because `graphData` is a limited (typically ~15-minute) window, an outage such as 08:41→09:02 may have no intermediate point; the poller never fabricates readings.
 
 **Authentication failed:** confirm LibreLinkUp email/password in `.env`, accept any pending terms in the official app, and try `LIBRELINK_REGION=AUTO`. If Abbott starts requiring a newer client string, raise `LIBRELINK_CLIENT_VERSION`.
 
