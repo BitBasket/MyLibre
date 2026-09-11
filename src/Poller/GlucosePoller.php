@@ -13,7 +13,6 @@ use App\LibreLink\LibreLinkRateLimitException;
 use App\LibreLink\LibreLinkResponseException;
 use App\Support\Logger;
 use Carbon\Carbon;
-use PDOException;
 use Throwable;
 
 final class GlucosePoller
@@ -142,7 +141,7 @@ final class GlucosePoller
             }
 
             if ($latest !== null && !$fetchedIsStale) {
-                $this->logger->info('Stored glucose reading ' . $latest->glucoseMgDl . ' mg/dL');
+                $this->logger->info('Stored latest glucose reading');
             }
             if ($inserted > 1) {
                 $this->logger->info('Saved ' . $inserted . ' new glucose readings');
@@ -161,9 +160,6 @@ final class GlucosePoller
             return $this->backoff($delay, 15, 300);
         } catch (LibreLinkResponseException $e) {
             $this->logger->error($e->getMessage());
-            return $this->intervalSeconds;
-        } catch (PDOException $e) {
-            $this->logger->error('Database insert failed');
             return $this->intervalSeconds;
         } catch (Throwable $e) {
             $this->logger->error('Poller failed: ' . $e->getMessage());

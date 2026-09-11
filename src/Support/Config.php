@@ -24,6 +24,10 @@ final class Config
         public readonly string $sessionPath,
         public readonly int $abbottPollSeconds,
         public readonly int $browserPollSeconds,
+        public readonly string $dataPath = '',
+        public readonly string $publicKeyPath = '',
+        public readonly string $privateKeyPath = '',
+        public readonly string $unlockPassphrase = '',
     ) {
     }
 
@@ -31,8 +35,8 @@ final class Config
     {
         Env::load($root);
 
-        $sqlite = Env::get('SQLITE_PATH', 'data/glucose.sqlite') ?? 'data/glucose.sqlite';
-        $session = Env::get('SESSION_PATH', 'data/libre-session.json') ?? 'data/libre-session.json';
+        $sqlite = Env::get('SQLITE_PATH', '') ?? '';
+        $session = Env::get('SESSION_PATH', 'data/libre-session.json.asc') ?? 'data/libre-session.json.asc';
 
         return new self(
             root: $root,
@@ -48,6 +52,10 @@ final class Config
             libreLinkClientVersion: Env::get('LIBRELINK_CLIENT_VERSION', '4.16.0') ?? '4.16.0',
             sqlitePath: self::absolutePath($root, $sqlite),
             sessionPath: self::absolutePath($root, $session),
+            dataPath: self::absolutePath($root, Env::get('DATA_PATH', 'data/glucose.json.asc') ?? 'data/glucose.json.asc'),
+            publicKeyPath: self::absolutePath($root, Env::get('PGP_PUBLIC_KEY_PATH', 'data/keys/public.asc') ?? 'data/keys/public.asc'),
+            privateKeyPath: self::absolutePath($root, Env::get('PGP_PRIVATE_KEY_PATH', 'data/keys/private.asc') ?? 'data/keys/private.asc'),
+            unlockPassphrase: Env::get('PGP_PASSPHRASE', '') ?? '',
             abbottPollSeconds: self::positiveInt('ABBOTT_POLL_SECONDS', Env::get('ABBOTT_POLL_SECONDS', '60'), 60),
             browserPollSeconds: self::positiveInt('BROWSER_POLL_SECONDS', Env::get('BROWSER_POLL_SECONDS', '5'), 5),
         );

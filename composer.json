@@ -6,8 +6,6 @@
     "require": {
         "php": "^8.4",
         "ext-json": "*",
-        "ext-pdo": "*",
-        "ext-pdo_sqlite": "*",
         "phpexperts/simple-dto": "^3.9",
         "phpexperts/rest-speaker": "^3.0"
     },
@@ -28,7 +26,6 @@
         "test": "phpunit",
         "poll": "php bin/poll-glucose.php",
         "serve": "php -S 127.0.0.1:8765 -t public public/router.php",
-        "init-db": "php bin/init-db.php"
     },
     "config": {
         "sort-packages": true

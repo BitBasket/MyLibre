@@ -8,6 +8,7 @@ use App\API\ReadingPresenter;
 use App\Contract\GlucoseRepository;
 use App\DTO\GlucoseReadingDTO;
 use App\Support\Config;
+use App\Security\PgpCrypto;
 use Carbon\Carbon;
 use RuntimeException;
 
@@ -17,6 +18,8 @@ final class DashboardSnapshot
         private readonly GlucoseRepository $repository,
         private readonly Config $config,
         private readonly string $directory,
+        private readonly ?PgpCrypto $crypto = null,
+        private readonly string $passphrase = '',
     ) {
     }
 
@@ -32,9 +35,8 @@ final class DashboardSnapshot
         $now = Carbon::now('UTC');
         [$days, $revisions] = $this->writeDailyHistory($now, $history);
 
-        $this->atomicWrite('current.json', ReadingPresenter::stored($latest));
-        $this->removeLegacyHistory();
-        $this->atomicWrite('status.json', [
+        $this->atomicWrite('current.json.asc', ReadingPresenter::stored($latest));
+        $this->atomicWrite('status.json.asc', [
             'ok' => true,
             'provider' => $this->config->glucoseProvider,
             'latestReadingAt' => $latest !== null ? ReadingPresenter::iso($latest->timestamp) : null,
@@ -68,7 +70,7 @@ final class DashboardSnapshot
         $revisions = [];
         foreach ($byDay as $day => $readings) {
             $serialized = ReadingPresenter::history($readings);
-            $this->atomicWrite('history-' . $day . '.json', [
+            $this->atomicWrite('history-' . $day . '.json.asc', [
                 'readings' => $serialized,
             ]);
             $revisions[(string) $day] = hash('sha256', json_encode($serialized, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
@@ -91,8 +93,12 @@ final class DashboardSnapshot
     private function atomicWrite(string $filename, array $payload): void
     {
         $path = $this->directory . '/' . $filename;
-        $tmp = $path . '.tmp';
+        $tmp = $path . '.' . bin2hex(random_bytes(6)) . '.tmp';
         $json = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($this->crypto !== null) {
+            if ($this->passphrase === '') throw new RuntimeException('PGP unlock is required before writing dashboard snapshots.');
+            $json = $this->crypto->encrypt($json, $this->passphrase);
+        }
 
         if (file_put_contents($tmp, $json, LOCK_EX) === false) {
             throw new RuntimeException('Unable to write dashboard snapshot: ' . $filename);
@@ -103,6 +109,6 @@ final class DashboardSnapshot
             throw new RuntimeException('Unable to publish dashboard snapshot: ' . $filename);
         }
 
-        chmod($path, 0644);
+        chmod($path, 0600);
     }
 }

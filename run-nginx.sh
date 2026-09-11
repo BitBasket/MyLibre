@@ -50,7 +50,7 @@ fi
 echo "Starting nginx on port $PORT..."
 DOCKER_ARGS=(
     --name "$CONTAINER_NAME"
-    -p "$PORT:80"
+    -p "127.0.0.1:$PORT:80"
     -v "$PUBLIC_DIR:/usr/share/nginx/html:ro"
 )
 if [ -f "$NGINX_CONF" ]; then

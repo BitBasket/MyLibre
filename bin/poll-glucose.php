@@ -12,6 +12,8 @@ $snapshot = new App\Export\DashboardSnapshot(
     $app->repository(),
     $app->config,
     $app->config->root . '/public',
+    new App\Security\PgpCrypto($app->config->publicKeyPath, $app->config->privateKeyPath),
+    $app->config->unlockPassphrase,
 );
 
 $poller = new App\Poller\GlucosePoller(

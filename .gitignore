@@ -2,10 +2,12 @@
 /.env
 /data/*.sqlite
 /data/*.sqlite-*
-/data/libre-session.json
+/data/keys/
+/data/*.asc
 /public/current.json
 /public/history.json
 /public/history-*.json
 /public/status.json
+/public/*.asc
 /.phpunit.cache
 /phpunit.result.cache

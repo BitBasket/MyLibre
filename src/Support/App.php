@@ -6,18 +6,15 @@ namespace App\Support;
 
 use App\Contract\GlucoseProvider;
 use App\Contract\GlucoseRepository;
-use App\Database\SQLiteConnection;
-use App\Database\SQLiteGlucoseRepository;
+use App\Database\EncryptedGlucoseRepository;
+use App\Security\PgpCrypto;
 use App\LibreLink\LibreLinkUpProvider;
 use App\LibreLink\SessionStore;
 use App\Mock\MockGlucoseProvider;
 use InvalidArgumentException;
-use PDO;
 
 final class App
 {
-    private ?PDO $pdo = null;
-
     private ?GlucoseRepository $repository = null;
 
     private ?GlucoseProvider $provider = null;
@@ -36,14 +33,10 @@ final class App
         return new self($config, new Logger());
     }
 
-    public function pdo(): PDO
-    {
-        return $this->pdo ??= SQLiteConnection::connect($this->config->sqlitePath);
-    }
-
     public function repository(): GlucoseRepository
     {
-        return $this->repository ??= new SQLiteGlucoseRepository($this->pdo());
+        if ($this->config->publicKeyPath === '' || $this->config->privateKeyPath === '') throw new InvalidArgumentException('PGP_PUBLIC_KEY_PATH and PGP_PRIVATE_KEY_PATH are required.');
+        return $this->repository ??= new EncryptedGlucoseRepository($this->config->dataPath, new PgpCrypto($this->config->publicKeyPath, $this->config->privateKeyPath), $this->config->unlockPassphrase);
     }
 
     public function provider(): GlucoseProvider
@@ -67,7 +60,7 @@ final class App
         return $this->provider = new LibreLinkUpProvider(
             $this->config,
             $this->logger,
-            new SessionStore($this->config->sessionPath, $this->logger),
+            new SessionStore($this->config->sessionPath, $this->logger, new PgpCrypto($this->config->publicKeyPath, $this->config->privateKeyPath), $this->config->unlockPassphrase),
         );
     }
 }
