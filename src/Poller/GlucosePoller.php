@@ -141,7 +141,7 @@ final class GlucosePoller
             }
 
             if ($latest !== null && !$fetchedIsStale) {
-                $this->logger->info('Stored latest glucose reading');
+                $this->logger->info('Stored glucose reading ' . $latest->glucoseMgDl . ' mg/dL');
             }
             if ($inserted > 1) {
                 $this->logger->info('Saved ' . $inserted . ' new glucose readings');

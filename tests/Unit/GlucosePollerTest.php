@@ -41,6 +41,7 @@ final class GlucosePollerTest extends TestCase
             $log = stream_get_contents($stream);
             $this->assertStringContainsString('SENSOR LOST', $log);
             $this->assertStringContainsString('SENSOR RESTORED', $log);
+            $this->assertStringContainsString('Stored glucose reading 151 mg/dL', $log);
         } finally {
             Carbon::setTestNow();
         }
@@ -189,6 +190,26 @@ final class GlucosePollerTest extends TestCase
             (new GlucosePoller($provider, $repository, new Logger($stream), 60))->poll();
             rewind($stream);
             $this->assertStringContainsString('BACKFILL INCOMPLETE for gap', stream_get_contents($stream));
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function testSuccessfulPollLogsGlucoseMgDl(): void
+    {
+        Carbon::setTestNow('2026-09-04T09:10:00Z');
+        try {
+            $reading = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:10:00Z', 'glucoseMgDl' => 174, 'trend' => 'falling', 'trendArrow' => '↘']);
+            $provider = new class($reading) implements GlucoseProvider {
+                public function __construct(private GlucoseReadingDTO $reading) {}
+                public function authenticate(): LibreLinkUpSessionDTO { return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']); }
+                public function getCurrentReading(): GlucoseReadingDTO { return $this->reading; }
+                public function getHistory(): array { return [$this->reading]; }
+            };
+            $stream = fopen('php://memory', 'w+b');
+            (new GlucosePoller($provider, new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:')), new Logger($stream), 60, false))->poll();
+            rewind($stream);
+            $this->assertStringContainsString('Stored glucose reading 174 mg/dL', stream_get_contents($stream));
         } finally {
             Carbon::setTestNow();
         }

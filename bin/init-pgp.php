@@ -6,8 +6,7 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 use App\Database\EncryptedGlucoseRepository;
-use App\Database\SQLiteConnection;
-use App\Database\SQLiteGlucoseRepository;
+use App\Database\SqliteHistoryImporter;
 use App\Security\PgpCrypto;
 use App\Security\PgpKeyGenerator;
 use App\Support\Config;
@@ -76,6 +75,11 @@ $crypto = new PgpCrypto($config->publicKeyPath, $config->privateKeyPath);
 
 $repository = new EncryptedGlucoseRepository($config->dataPath, $crypto, $passphrase);
 $sqliteCandidates = [];
+foreach (array_slice($argv, 1) as $arg) {
+    if (str_starts_with($arg, '--from=')) {
+        $sqliteCandidates[] = substr($arg, 7);
+    }
+}
 if (str_ends_with($config->sqlitePath, '.sqlite') && is_file($config->sqlitePath)) {
     $sqliteCandidates[] = $config->sqlitePath;
 }
@@ -86,10 +90,7 @@ if (is_file($defaultSqlite)) {
 
 $migrated = 0;
 foreach (array_unique($sqliteCandidates) as $sqlitePath) {
-    $pdo = SQLiteConnection::connect($sqlitePath);
-    $pdo->exec('PRAGMA wal_checkpoint(PASSIVE)');
-    $source = new SQLiteGlucoseRepository($pdo);
-    $migrated += $repository->import($source->all());
+    $migrated += SqliteHistoryImporter::importFile($sqlitePath, $repository);
 }
 $repository->flush();
 

@@ -48,6 +48,16 @@ php bin/init-db.php
 
 Credentials belong only in `.env`. That file is gitignored.
 
+## Migrate from v1
+
+v1 keeps plaintext SQLite at `data/glucose.sqlite` (this checkout's sibling `../data/` when v2 lives in `MyLibre.v2/`). v2 stores encrypted JSON under its own PGP keys, so copying `glucose.sqlite` or v1's `data/keys/` is not enough.
+
+```bash
+php bin/migrate-sqlite.php ../data/glucose.sqlite
+```
+
+That command snapshots the live SQLite file (including WAL, without stopping v1), imports timestamps that v2 does not already have, and rewrites encrypted dashboard files in `public/`. Re-run it whenever v1 has collected more readings. v1 is not modified.
+
 ## Configuration
 
 | Variable | Purpose |
@@ -59,7 +69,7 @@ Credentials belong only in `.env`. That file is gitignored.
 | `LIBRELINK_PATIENT_ID` | Optional when more than one connection exists |
 | `LIBRELINK_CLIENT_VERSION` | LibreLinkUp client version header. Bump if Abbott starts returning 403. |
 | `HOST` | Bind address. Default `127.0.0.1`. LAN exposure requires an explicit change. |
-| `SQLITE_PATH` | Default `data/glucose.sqlite` |
+| `SQLITE_PATH` | Optional v1 SQLite file for `php bin/migrate-sqlite.php`. Not used by the poller. |
 | `SESSION_PATH` | Default `data/libre-session.json` (token cache, gitignored, mode 0600) |
 | `ABBOTT_POLL_SECONDS` | Upstream poll interval, default 60 |
 | `BROWSER_POLL_SECONDS` | Dashboard poll interval, default 5 |
