@@ -62,7 +62,7 @@ body.locked .shell {
     display: none;
 }
 
-body.unlocked .unlock-gate {
+body:not(.locked) .unlock-gate {
     display: none;
 }
 

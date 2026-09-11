@@ -1,3 +1,4 @@
+#!/bin/php
 <?php
 
 declare(strict_types=1);
@@ -11,31 +12,67 @@ use App\Security\PgpCrypto;
 use App\Security\PgpKeyGenerator;
 use App\Support\Config;
 use App\Support\Env;
+use App\Support\PassphrasePrompt;
 
 $root = dirname(__DIR__);
 Env::reset();
 $config = Config::fromEnv($root);
-$passphrase = $config->unlockPassphrase;
-$wrotePassphrase = false;
-
-if ($passphrase === '') {
-    $passphrase = bin2hex(random_bytes(24));
-    writePassphrase($root . '/.env', $passphrase);
-    $wrotePassphrase = true;
-    putenv('PGP_PASSPHRASE=' . $passphrase);
-    $_ENV['PGP_PASSPHRASE'] = $passphrase;
-    Env::reset();
-    $config = Config::fromEnv($root);
-}
 
 if ($config->publicKeyPath === '' || $config->privateKeyPath === '') {
     fwrite(STDERR, "PGP_PUBLIC_KEY_PATH and PGP_PRIVATE_KEY_PATH are required.\n");
     exit(1);
 }
 
-PgpKeyGenerator::ensure($config->publicKeyPath, $config->privateKeyPath, $passphrase);
+$keysExist = is_readable($config->publicKeyPath) && is_readable($config->privateKeyPath);
+$passphrase = $config->unlockPassphrase;
+$wrotePassphrase = false;
+$prompt = $passphrase === '' && PassphrasePrompt::terminalAvailable()
+    ? PassphrasePrompt::interactive()
+    : null;
+
+if ($prompt !== null) {
+    $passphrase = askForPassphrase($prompt, $keysExist);
+} elseif ($passphrase === '') {
+    fwrite(STDERR, "PGP_PASSPHRASE is not set and there is no terminal to prompt for it.\n");
+    fwrite(STDERR, "Set PGP_PASSPHRASE in .env, or run php bin/init-pgp.php from an interactive shell.\n");
+    exit(1);
+}
+
+$attempts = 0;
+while (true) {
+    try {
+        PgpKeyGenerator::ensure($config->publicKeyPath, $config->privateKeyPath, $passphrase);
+        break;
+    } catch (RuntimeException $error) {
+        if ($prompt === null || !$keysExist) {
+            fwrite(STDERR, $error->getMessage() . "\n");
+            if ($prompt === null && $keysExist) {
+                fwrite(STDERR, "Check PGP_PASSPHRASE in .env, or clear it to be prompted for the passphrase.\n");
+            }
+            exit(1);
+        }
+
+        if (++$attempts >= PassphrasePrompt::MAX_ATTEMPTS) {
+            fwrite(STDERR, $error->getMessage() . "\n");
+            fwrite(STDERR, "Unable to unlock the existing PGP key.\n");
+            exit(1);
+        }
+
+        fwrite(STDERR, "That passphrase did not unlock the private key.\n");
+        $passphrase = askForPassphrase($prompt, true);
+    }
+}
+
+if ($prompt !== null) {
+    if (Env::roundTrips($passphrase)) {
+        Env::write($root . '/.env', 'PGP_PASSPHRASE', $passphrase);
+        $wrotePassphrase = true;
+    } else {
+        fwrite(STDERR, "This passphrase cannot be stored in .env, so PGP_PASSPHRASE must be set in the environment for the poller.\n");
+    }
+}
+
 $crypto = new PgpCrypto($config->publicKeyPath, $config->privateKeyPath);
-$crypto->validate($passphrase);
 
 $repository = new EncryptedGlucoseRepository($config->dataPath, $crypto, $passphrase);
 $sqliteCandidates = [];
@@ -69,21 +106,12 @@ if ($migrated > 0) {
 }
 echo "Unlock the dashboard with the same public.asc, private.asc, and passphrase.\n";
 
-function writePassphrase(string $envPath, string $passphrase): void
+function askForPassphrase(PassphrasePrompt $prompt, bool $keysExist): string
 {
-    $line = 'PGP_PASSPHRASE=' . $passphrase;
-    if (!is_file($envPath)) {
-        file_put_contents($envPath, $line . "\n");
-        chmod($envPath, 0600);
-        return;
+    try {
+        return $keysExist ? $prompt->forExistingKey() : $prompt->forNewKey();
+    } catch (RuntimeException $error) {
+        fwrite(STDERR, $error->getMessage() . "\n");
+        exit(1);
     }
-
-    $contents = (string) file_get_contents($envPath);
-    if (preg_match('/^PGP_PASSPHRASE=.*$/m', $contents) === 1) {
-        $contents = preg_replace('/^PGP_PASSPHRASE=.*$/m', $line, $contents, 1) ?? $contents;
-    } else {
-        $contents = rtrim($contents) . "\n" . $line . "\n";
-    }
-    file_put_contents($envPath, $contents);
-    chmod($envPath, 0600);
 }

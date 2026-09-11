@@ -1,6 +1,7 @@
 (() => {
     const FRESH_SECONDS = 180;
     const STALE_SECONDS = 600;
+    const STALE_LEVELS = ['fresh', 'stale', 'disconnected', 'missing'];
     const TARGET_LOW = 70;
     const TARGET_HIGH = 180;
     const RANGE_YELLOW_MAX = 240;
@@ -330,7 +331,7 @@
         const current = withAge(payload);
         lastKnown = current;
         const level = current.staleLevel || 'missing';
-        document.body.className = level;
+        STALE_LEVELS.forEach((name) => document.body.classList.toggle(name, name === level));
         setBanner(offline ? 'stale' : level);
 
         valueEl.textContent = current.glucoseMgDl == null ? '--' : String(current.glucoseMgDl);
@@ -1144,10 +1145,20 @@
             });
     }
 
+    function rememberKeys(publicArmored, privateArmored) {
+        publicKeyEl.value = publicArmored;
+        privateKeyEl.value = privateArmored;
+        keyFields.classList.add('hidden');
+        forgetKeysBtn.classList.remove('hidden');
+        publicKeyFile.value = '';
+        privateKeyFile.value = '';
+    }
+
     async function enterUnlocked(keys, persistKeys) {
         vaultKeys = keys;
         if (persistKeys) {
             await PgpVault.saveKeys(keys.publicArmored, keys.privateArmored);
+            rememberKeys(keys.publicArmored, keys.privateArmored);
         }
         document.body.classList.remove('locked');
         document.body.classList.add('unlocked');
@@ -1182,11 +1193,13 @@
             }
             const text = await readFileAsText(file);
             (index === 0 ? publicKeyEl : privateKeyEl).value = text;
+            input.value = '';
         });
     });
 
     unlockForm.addEventListener('submit', async (event) => {
         event.preventDefault();
+        event.stopPropagation();
         unlockBtn.disabled = true;
         showUnlockError('');
         try {
@@ -1213,9 +1226,6 @@
         if (!saved) {
             return;
         }
-        publicKeyEl.value = saved.publicArmored;
-        privateKeyEl.value = saved.privateArmored;
-        keyFields.classList.add('hidden');
-        forgetKeysBtn.classList.remove('hidden');
+        rememberKeys(saved.publicArmored, saved.privateArmored);
     }).catch(() => {});
 })();

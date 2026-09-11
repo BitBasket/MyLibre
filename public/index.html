@@ -9,23 +9,23 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
-    <link rel="stylesheet" href="/app.css">
+    <link rel="stylesheet" href="/app.css?v=13">
 </head>
 <body class="locked">
     <section id="unlock-gate" class="unlock-gate" aria-labelledby="unlock-title">
-        <form id="unlock-form" class="unlock-card">
+        <form id="unlock-form" class="unlock-card" method="dialog" autocomplete="off">
             <h1 id="unlock-title">Unlock glucose history</h1>
             <p class="muted">Use the same GnuPG keypair the poller encrypts with (<code>data/keys/public.asc</code> and <code>data/keys/private.asc</code>).</p>
             <div id="key-fields">
                 <label for="public-key-file">Public key</label>
                 <input id="public-key-file" type="file" accept=".asc,.txt,.gpg,.pgp,text/plain">
-                <textarea id="public-key" rows="6" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" spellcheck="false" autocomplete="off"></textarea>
+                <textarea id="public-key" rows="6" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
                 <label for="private-key-file">Private key</label>
                 <input id="private-key-file" type="file" accept=".asc,.txt,.gpg,.pgp,text/plain">
-                <textarea id="private-key" rows="6" placeholder="-----BEGIN PGP PRIVATE KEY BLOCK-----" spellcheck="false" autocomplete="off"></textarea>
+                <textarea id="private-key" rows="6" placeholder="-----BEGIN PGP PRIVATE KEY BLOCK-----" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
             </div>
             <label for="pgp-passphrase">Passphrase</label>
-            <input id="pgp-passphrase" type="password" autocomplete="current-password" required>
+            <input id="pgp-passphrase" type="password" autocomplete="off" data-lpignore="true" data-1p-ignore="true" required>
             <p id="unlock-error" class="unlock-error hidden" role="alert"></p>
             <button type="submit" id="unlock-btn">Unlock</button>
             <button type="button" id="forget-keys" class="secondary hidden">Forget saved keys</button>
@@ -76,7 +76,7 @@
     </main>
     <script src="/vendor/chart.umd.min.js"></script>
     <script src="/vendor/openpgp.min.js"></script>
-    <script src="/pgp.js"></script>
-    <script src="/app.js"></script>
+    <script src="/pgp.js?v=13"></script>
+    <script src="/app.js?v=13"></script>
 </body>
 </html>
