@@ -33,11 +33,109 @@ html, body {
     padding: 1.5rem 1.25rem 2.5rem;
 }
 
+.top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
 .top h1 {
     margin: 0;
     font-size: 1.1rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
+}
+
+.lock-btn,
+.unlock-card button.secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.4rem 0.9rem;
+    cursor: pointer;
+    font: inherit;
+}
+
+body.locked .shell {
+    display: none;
+}
+
+body.unlocked .unlock-gate {
+    display: none;
+}
+
+.unlock-gate {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+}
+
+.unlock-card {
+    width: min(36rem, 100%);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 1.4rem 1.3rem 1.5rem;
+}
+
+.unlock-card h1 {
+    margin: 0 0 0.4rem;
+    font-size: 1.25rem;
+}
+
+.unlock-card label {
+    display: block;
+    margin: 0.9rem 0 0.3rem;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.unlock-card textarea,
+.unlock-card input[type="password"],
+.unlock-card input[type="file"] {
+    width: 100%;
+    box-sizing: border-box;
+    background: #081218;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.55rem 0.7rem;
+    font: 0.82rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.unlock-card input[type="password"] {
+    font-family: inherit;
+}
+
+.unlock-card input[type="file"] {
+    margin-bottom: 0.35rem;
+    font-family: inherit;
+}
+
+.unlock-card button[type="submit"] {
+    margin-top: 1rem;
+    background: #1a6b62;
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 650;
+}
+
+.unlock-card button.secondary {
+    margin: 0.7rem 0 0;
+    width: 100%;
+}
+
+.unlock-error {
+    margin: 0.8rem 0 0;
+    color: var(--bad);
 }
 
 .muted {

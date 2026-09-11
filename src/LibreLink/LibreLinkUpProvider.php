@@ -85,7 +85,7 @@ final class LibreLinkUpProvider implements GlucoseProvider
         $session = $this->ensureSession();
         $patientId = $session->patientId ?: $this->discoverPatientId($session);
         if ($patientId !== $session->patientId) {
-            $session = new LibreLinkUpSessionDTO($session->toArray() + ['patientId' => $patientId]);
+            $session = new LibreLinkUpSessionDTO(array_merge($session->toArray(), ['patientId' => $patientId]));
             $this->session = $session;
             $this->sessions->save($session);
         }
@@ -104,7 +104,12 @@ final class LibreLinkUpProvider implements GlucoseProvider
         $payload = $this->request('GET', LibreLinkUpEndpoints::CONNECTIONS, allowReauth: true);
         $connections = $this->property($payload, 'data');
         if (!is_array($connections) || $connections === []) {
-            throw new LibreLinkResponseException('LibreLinkUp connection lookup failed');
+            $status = $this->property($payload, 'status');
+            throw new LibreLinkResponseException(
+                'LibreLinkUp connection lookup failed'
+                . ($status !== null ? ' (status ' . json_encode($status) . ')' : '')
+                . ($this->lastStatus > 0 ? ' HTTP ' . $this->lastStatus : ''),
+            );
         }
 
         $configured = $this->config->libreLinkPatientId;

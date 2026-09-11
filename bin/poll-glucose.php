@@ -12,7 +12,7 @@ $snapshot = new App\Export\DashboardSnapshot(
     $app->repository(),
     $app->config,
     $app->config->root . '/public',
-    new App\Security\PgpCrypto($app->config->publicKeyPath, $app->config->privateKeyPath),
+    $app->crypto(),
     $app->config->unlockPassphrase,
 );
 

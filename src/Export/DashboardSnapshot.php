@@ -35,9 +35,10 @@ final class DashboardSnapshot
         $now = Carbon::now('UTC');
         [$days, $revisions] = $this->writeDailyHistory($now, $history);
 
-        $this->atomicWrite('current.json.asc', ReadingPresenter::stored($latest));
-        $this->atomicWrite('status.json.asc', [
+        $this->atomicWrite($this->snapshotName('current'), ReadingPresenter::stored($latest));
+        $this->atomicWrite($this->snapshotName('status'), [
             'ok' => true,
+            'encrypted' => $this->crypto !== null,
             'provider' => $this->config->glucoseProvider,
             'latestReadingAt' => $latest !== null ? ReadingPresenter::iso($latest->timestamp) : null,
             'earliestReadingAt' => $earliest !== null ? ReadingPresenter::iso($earliest->timestamp) : null,
@@ -45,6 +46,8 @@ final class DashboardSnapshot
             'historyRevisions' => $revisions,
             'browserPollSeconds' => $this->config->browserPollSeconds,
         ]);
+        $this->removeLegacyHistory();
+        $this->removePlaintextSnapshots();
     }
 
     /**
@@ -70,7 +73,7 @@ final class DashboardSnapshot
         $revisions = [];
         foreach ($byDay as $day => $readings) {
             $serialized = ReadingPresenter::history($readings);
-            $this->atomicWrite('history-' . $day . '.json.asc', [
+            $this->atomicWrite($this->snapshotName('history-' . $day), [
                 'readings' => $serialized,
             ]);
             $revisions[(string) $day] = hash('sha256', json_encode($serialized, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
@@ -109,6 +112,31 @@ final class DashboardSnapshot
             throw new RuntimeException('Unable to publish dashboard snapshot: ' . $filename);
         }
 
-        chmod($path, 0600);
+        // Ciphertext may be served by nginx running as another user.
+        chmod($path, $this->crypto !== null ? 0644 : 0600);
+    }
+
+    private function snapshotName(string $basename): string
+    {
+        return $basename . ($this->crypto !== null ? '.json.asc' : '.json');
+    }
+
+    private function removePlaintextSnapshots(): void
+    {
+        if ($this->crypto === null) {
+            return;
+        }
+
+        foreach (['current.json', 'status.json'] as $name) {
+            $plain = $this->directory . '/' . $name;
+            if (is_file($plain)) {
+                @unlink($plain);
+            }
+        }
+        foreach (glob($this->directory . '/history-*.json') ?: [] as $plain) {
+            if (is_file($plain) && !str_ends_with($plain, '.asc')) {
+                @unlink($plain);
+            }
+        }
     }
 }

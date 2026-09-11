@@ -21,6 +21,17 @@
     const ageEl = document.getElementById('age');
     const bannerEl = document.getElementById('banner');
     const sourceEl = document.getElementById('source-line');
+    const unlockForm = document.getElementById('unlock-form');
+    const unlockError = document.getElementById('unlock-error');
+    const unlockBtn = document.getElementById('unlock-btn');
+    const forgetKeysBtn = document.getElementById('forget-keys');
+    const lockBtn = document.getElementById('lock-btn');
+    const keyFields = document.getElementById('key-fields');
+    const publicKeyEl = document.getElementById('public-key');
+    const privateKeyEl = document.getElementById('private-key');
+    const publicKeyFile = document.getElementById('public-key-file');
+    const privateKeyFile = document.getElementById('private-key-file');
+    const passphraseEl = document.getElementById('pgp-passphrase');
     const buttons = [...document.querySelectorAll('.ranges button')];
     const canvas = document.getElementById('chart');
     const overviewCanvas = document.getElementById('chart-overview');
@@ -45,23 +56,31 @@
     let hoverTime = null;
     let panState = null;
     let brushState = null;
+    let vaultKeys = null;
+    let refreshTimer = null;
 
     function fetchLive(path) {
         return fetch(`${path}?t=${Date.now()}`, { cache: 'no-store' });
     }
 
-    function isJsonResponse(response) {
-        const type = (response.headers.get('content-type') || '').toLowerCase();
-        return response.ok && type.includes('json');
+    function isOkResponse(response) {
+        return response.ok;
     }
 
-    async function readJson(response) {
+    async function readSnapshot(response) {
         const text = await response.text();
-        try {
-            return JSON.parse(text);
-        } catch (error) {
-            throw new Error(`Invalid JSON from ${response.url} (${response.status}): ${text.slice(0, 80)}`);
+        if (!response.ok) {
+            throw new Error(`Snapshot missing from ${response.url} (${response.status})`);
         }
+        try {
+            return await PgpVault.decryptJson(text, vaultKeys);
+        } catch (error) {
+            throw new Error(`Unable to decrypt ${response.url}: ${error.message}`);
+        }
+    }
+
+    async function readFileAsText(file) {
+        return await file.text();
     }
 
     function staleLevel(ageSeconds) {
@@ -141,14 +160,14 @@
         let cursor = utcYmd(new Date());
         let misses = 0;
         for (let i = 0; i < 400 && misses < 2; i += 1) {
-            const response = await fetchLive(`/history-${cursor}.json`);
-            if (!isJsonResponse(response)) {
+            const response = await fetchLive(`/history-${cursor}.json.asc`);
+            if (!isOkResponse(response)) {
                 misses += 1;
                 cursor = addUtcDays(cursor, -1);
                 continue;
             }
             misses = 0;
-            const payload = await readJson(response);
+            const payload = await readSnapshot(response);
             historyCache.set(cursor, payload.readings || []);
             days.push(cursor);
             cursor = addUtcDays(cursor, -1);
@@ -195,14 +214,14 @@
                 continue;
             }
             fetches.push((async () => {
-                const response = await fetchLive(`/history-${day}.json`);
-                if (!isJsonResponse(response)) {
+                const response = await fetchLive(`/history-${day}.json.asc`);
+                if (!isOkResponse(response)) {
                     if (!historyCache.has(day)) {
                         historyCache.set(day, []);
                     }
                     return;
                 }
-                const payload = await readJson(response);
+                const payload = await readSnapshot(response);
                 historyCache.set(day, payload.readings || []);
                 if (revisions && revision != null) {
                     historyRevisions.set(day, revision);
@@ -1041,33 +1060,36 @@
     overviewCanvas.addEventListener('pointercancel', endBrush);
 
     async function loadConfig() {
-        const response = await fetchLive('/status.json');
-        if (!isJsonResponse(response)) {
+        const response = await fetchLive('/status.json.asc');
+        if (!isOkResponse(response)) {
             return;
         }
-        const status = await readJson(response);
+        const status = await readSnapshot(response);
         if (status.browserPollSeconds) {
             pollSeconds = status.browserPollSeconds;
         }
     }
 
     async function refresh() {
+        if (!vaultKeys) {
+            return;
+        }
         try {
             const [currentRes, statusRes] = await Promise.all([
-                fetchLive('/current.json'),
-                fetchLive('/status.json'),
+                fetchLive('/current.json.asc'),
+                fetchLive('/status.json.asc'),
             ]);
-            if (!isJsonResponse(currentRes)) {
+            if (!isOkResponse(currentRes)) {
                 throw new Error('snapshot');
             }
             offline = false;
-            const current = await readJson(currentRes);
-            const status = isJsonResponse(statusRes) ? await readJson(statusRes) : {};
+            const current = await readSnapshot(currentRes);
+            const status = isOkResponse(statusRes) ? await readSnapshot(statusRes) : {};
             const readings = await loadHistory(await resolveHistoryDays(status), status);
             renderCurrent(current);
             renderChart(readings);
             if (statusRes.ok) {
-                sourceEl.textContent = `local snapshot · ${status.provider || 'unknown'}`;
+                sourceEl.textContent = `encrypted snapshot · ${status.provider || 'unknown'}`;
             }
             localStorage.setItem('mylibre.current', JSON.stringify(current));
             localStorage.setItem('mylibre.history', JSON.stringify(readings));
@@ -1105,14 +1127,95 @@
         });
     });
 
+    function showUnlockError(message) {
+        unlockError.textContent = message;
+        unlockError.classList.toggle('hidden', !message);
+    }
+
+    function startPolling() {
+        if (refreshTimer) {
+            clearInterval(refreshTimer);
+        }
+        loadConfig()
+            .catch(() => {})
+            .finally(() => {
+                refresh();
+                refreshTimer = setInterval(refresh, pollSeconds * 1000);
+            });
+    }
+
+    async function enterUnlocked(keys, persistKeys) {
+        vaultKeys = keys;
+        if (persistKeys) {
+            await PgpVault.saveKeys(keys.publicArmored, keys.privateArmored);
+        }
+        document.body.classList.remove('locked');
+        document.body.classList.add('unlocked');
+        passphraseEl.value = '';
+        showUnlockError('');
+        startPolling();
+    }
+
+    function lock(forgetSaved) {
+        vaultKeys = null;
+        if (refreshTimer) {
+            clearInterval(refreshTimer);
+            refreshTimer = null;
+        }
+        document.body.classList.add('locked');
+        document.body.classList.remove('unlocked');
+        passphraseEl.value = '';
+        if (forgetSaved) {
+            PgpVault.clearKeys().catch(() => {});
+            publicKeyEl.value = '';
+            privateKeyEl.value = '';
+            keyFields.classList.remove('hidden');
+            forgetKeysBtn.classList.add('hidden');
+        }
+    }
+
+    [publicKeyFile, privateKeyFile].forEach((input, index) => {
+        input.addEventListener('change', async () => {
+            const file = input.files && input.files[0];
+            if (!file) {
+                return;
+            }
+            const text = await readFileAsText(file);
+            (index === 0 ? publicKeyEl : privateKeyEl).value = text;
+        });
+    });
+
+    unlockForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        unlockBtn.disabled = true;
+        showUnlockError('');
+        try {
+            const saved = await PgpVault.loadKeys();
+            const publicArmored = publicKeyEl.value.trim() || saved?.publicArmored || '';
+            const privateArmored = privateKeyEl.value.trim() || saved?.privateArmored || '';
+            const keys = await PgpVault.unlock(publicArmored, privateArmored, passphraseEl.value);
+            await enterUnlocked(keys, true);
+        } catch (error) {
+            showUnlockError(error.message || String(error));
+        } finally {
+            unlockBtn.disabled = false;
+        }
+    });
+
+    forgetKeysBtn.addEventListener('click', () => lock(true));
+    lockBtn.addEventListener('click', () => lock(false));
+
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/service-worker.js').catch(() => {});
     }
 
-    loadConfig()
-        .catch(() => {})
-        .finally(() => {
-            refresh();
-            setInterval(refresh, pollSeconds * 1000);
-        });
+    PgpVault.loadKeys().then((saved) => {
+        if (!saved) {
+            return;
+        }
+        publicKeyEl.value = saved.publicArmored;
+        privateKeyEl.value = saved.privateArmored;
+        keyFields.classList.add('hidden');
+        forgetKeysBtn.classList.remove('hidden');
+    }).catch(() => {});
 })();

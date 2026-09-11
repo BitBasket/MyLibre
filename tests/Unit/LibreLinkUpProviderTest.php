@@ -128,6 +128,23 @@ final class LibreLinkUpProviderTest extends TestCase
         $provider->getCurrentReading();
     }
 
+    public function testRemembersPatientIdSoLaterPollsSkipConnectionLookup(): void
+    {
+        $history = [];
+        $provider = $this->provider([
+            $this->jsonResponse($this->fixture('login-success.json')),
+            $this->jsonResponse($this->fixture('connections.json')),
+            $this->jsonResponse($this->fixture('graph.json')),
+            $this->jsonResponse($this->fixture('graph.json')),
+        ], $history);
+
+        $provider->getCurrentReading();
+        $provider->getCurrentReading();
+
+        $this->assertCount(4, $history);
+        $this->assertSame('llu/connections/patient-1/graph', $this->path($history[3]));
+    }
+
     public function testReauthenticatesAfter401OnGraph(): void
     {
         $history = [];

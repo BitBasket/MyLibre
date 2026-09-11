@@ -11,11 +11,33 @@
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
     <link rel="stylesheet" href="/app.css">
 </head>
-<body>
+<body class="locked">
+    <section id="unlock-gate" class="unlock-gate" aria-labelledby="unlock-title">
+        <form id="unlock-form" class="unlock-card">
+            <h1 id="unlock-title">Unlock glucose history</h1>
+            <p class="muted">Use the same GnuPG keypair the poller encrypts with (<code>data/keys/public.asc</code> and <code>data/keys/private.asc</code>).</p>
+            <div id="key-fields">
+                <label for="public-key-file">Public key</label>
+                <input id="public-key-file" type="file" accept=".asc,.txt,.gpg,.pgp,text/plain">
+                <textarea id="public-key" rows="6" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" spellcheck="false" autocomplete="off"></textarea>
+                <label for="private-key-file">Private key</label>
+                <input id="private-key-file" type="file" accept=".asc,.txt,.gpg,.pgp,text/plain">
+                <textarea id="private-key" rows="6" placeholder="-----BEGIN PGP PRIVATE KEY BLOCK-----" spellcheck="false" autocomplete="off"></textarea>
+            </div>
+            <label for="pgp-passphrase">Passphrase</label>
+            <input id="pgp-passphrase" type="password" autocomplete="current-password" required>
+            <p id="unlock-error" class="unlock-error hidden" role="alert"></p>
+            <button type="submit" id="unlock-btn">Unlock</button>
+            <button type="button" id="forget-keys" class="secondary hidden">Forget saved keys</button>
+        </form>
+    </section>
     <main class="shell">
         <header class="top">
-            <h1>Glucose</h1>
-            <p id="source-line" class="muted">local SQLite</p>
+            <div>
+                <h1>Glucose</h1>
+                <p id="source-line" class="muted">encrypted local snapshot</p>
+            </div>
+            <button type="button" id="lock-btn" class="lock-btn">Lock</button>
         </header>
 
         <section id="banner" class="banner hidden" role="status"></section>
@@ -53,6 +75,8 @@
         </section>
     </main>
     <script src="/vendor/chart.umd.min.js"></script>
+    <script src="/vendor/openpgp.min.js"></script>
+    <script src="/pgp.js"></script>
     <script src="/app.js"></script>
 </body>
 </html>

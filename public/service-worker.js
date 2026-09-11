@@ -1,4 +1,4 @@
-const CACHE = 'mylibre-static-v10';
+const CACHE = 'mylibre-static-v11';
 const ASSETS = [
     '/',
     '/index.html',
@@ -9,6 +9,8 @@ const ASSETS = [
     '/icons/icon-192.png',
     '/icons/icon-512.png',
     '/vendor/chart.umd.min.js',
+    '/vendor/openpgp.min.js',
+    '/pgp.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -32,8 +34,10 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/current.json'
+        || url.pathname === '/current.json.asc'
         || url.pathname === '/status.json'
-        || /^\/history-\d{8}\.json$/.test(url.pathname)) {
+        || url.pathname === '/status.json.asc'
+        || /^\/history-\d{8}\.json(\.asc)?$/.test(url.pathname)) {
         event.respondWith(
             fetch(event.request).catch(() => new Response(JSON.stringify({
                 error: 'offline',

@@ -61,6 +61,41 @@ final class DashboardSnapshotTest extends TestCase
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $status['historyRevisions']['20260901']);
         $this->assertSame('2026-09-01T19:31:00Z', $status['earliestReadingAt']);
         $this->assertArrayNotHasKey('password', $status);
+        $this->assertFalse($status['encrypted']);
+    }
+
+    public function testEncryptedSnapshotsAreArmoredAndDecryptable(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-09-01T20:00:00Z'));
+
+        $directory = sys_get_temp_dir() . '/mylibre-snapshot-enc-' . uniqid('', true);
+        mkdir($directory);
+        $crypto = \App\Tests\Support\PgpKeyFactory::make($directory);
+        $repository = new SQLiteGlucoseRepository(SQLiteConnection::connect(':memory:'));
+        $repository->save(new GlucoseReadingDTO([
+            'timestamp' => '2026-09-01T19:31:00Z',
+            'glucoseMgDl' => 174,
+            'trend' => 'falling',
+            'trendArrow' => '↘',
+            'source' => 'librelinkup',
+        ]));
+
+        $snapshot = new DashboardSnapshot(
+            $repository,
+            ConfigFactory::make(provider: 'mock'),
+            $directory,
+            $crypto,
+            'test-passphrase',
+        );
+        $snapshot->write();
+
+        $this->assertFileExists($directory . '/current.json.asc');
+        $this->assertFileDoesNotExist($directory . '/current.json');
+        $current = json_decode($crypto->decrypt((string) file_get_contents($directory . '/current.json.asc'), 'test-passphrase'), true);
+        $status = json_decode($crypto->decrypt((string) file_get_contents($directory . '/status.json.asc'), 'test-passphrase'), true);
+        $this->assertSame(174, $current['glucoseMgDl']);
+        $this->assertTrue($status['encrypted']);
+        $this->assertSame('mock', $status['provider']);
     }
 
     public function testSplitsHistoryByUtcDayAndRemovesLegacyFile(): void
