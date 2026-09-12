@@ -176,37 +176,33 @@
         return readings;
     }
 
-    // After a long outage the poller may write catch-up into buckets the
-    // dashboard already walked as 404s. Rewind to the left edge of a hole
-    // whose right edge is the live reading, once per new current timestamp.
+    // Catch-up is written into sensor-time buckets that may already be 404s.
+    // Detect the hole with one bucket (5 min), not GAP_MS (20 min chart gap).
     function rewindForRestore(current) {
         const currentTs = current && current.timestamp ? Date.parse(current.timestamp) : NaN;
         if (!Number.isFinite(currentTs)) {
             return;
         }
-        const currentChanged = currentTs !== lastCurrentTs;
         lastCurrentTs = currentTs;
-        if (!currentChanged) {
-            return;
-        }
-        absentBuckets.clear();
 
         const times = persistedReadings()
             .map((reading) => Date.parse(reading.timestamp))
-            .filter((time) => Number.isFinite(time))
+            .filter((time) => Number.isFinite(time) && time !== currentTs)
             .sort((a, b) => a - b);
-        times.push(currentTs);
-        let anchor = null;
-        for (let i = 1; i < times.length; i += 1) {
-            if (times[i] - times[i - 1] > GAP_MS && currentTs - times[i] <= GAP_MS) {
-                anchor = times[i - 1];
-            }
+        if (!times.length) {
+            return;
         }
-        if (anchor == null) {
+        const anchor = times[times.length - 1];
+        if (currentTs - anchor <= bucketSeconds * 1000) {
             return;
         }
         const rewindTo = bucketOf(Math.floor(anchor / 1000)) - bucketSeconds;
         consumedBucket = consumedBucket == null ? rewindTo : Math.min(consumedBucket, rewindTo);
+        for (const bucket of [...absentBuckets]) {
+            if (bucket >= rewindTo) {
+                absentBuckets.delete(bucket);
+            }
+        }
     }
 
     // History lives in immutable, time-bucketed batches whose URLs are derived
@@ -251,19 +247,20 @@
         }
 
         const fetched = [];
+        const outcome = new Map();
         for (let i = 0; i < buckets.length; i += FETCH_CONCURRENCY) {
             await Promise.all(buckets.slice(i, i + FETCH_CONCURRENCY).map(async (bucket) => {
                 if (absentBuckets.has(bucket)) {
+                    outcome.set(bucket, 'absent');
                     return;
                 }
                 const response = await fetchLive(`/b/${bucket}.json.asc`);
                 if (!isOkResponse(response)) {
-                    if (bucket !== openBucket) {
-                        absentBuckets.add(bucket);
-                    }
+                    outcome.set(bucket, 'miss');
                     return;
                 }
                 absentBuckets.delete(bucket);
+                outcome.set(bucket, 'ok');
                 const payload = await readSnapshot(response);
                 for (const reading of payload.readings || []) {
                     fetched.push(reading);
@@ -271,10 +268,33 @@
             }));
         }
 
+        // 404s at or before status.latestReadingAt are real gaps (the poller
+        // writes those buckets before updating status). 404s after that are
+        // not-yet-written catch-up and must not become a checkpoint.
+        const writtenThroughMs = status.latestReadingAt
+            ? Date.parse(status.latestReadingAt)
+            : NaN;
+
         // Leave one finalized bucket unconsumed so a late flush is caught next poll.
         // The open bucket is fetched every time and is not a checkpoint.
         if (lastFinal >= firstBucket) {
-            const advance = lastFinal - bucketSeconds;
+            let contiguous = from - bucketSeconds;
+            for (let bucket = from; bucket <= lastFinal; bucket += bucketSeconds) {
+                const result = outcome.get(bucket);
+                if (result === 'ok' || result === 'absent') {
+                    contiguous = bucket;
+                    continue;
+                }
+                if (result === 'miss'
+                    && Number.isFinite(writtenThroughMs)
+                    && (bucket + bucketSeconds) * 1000 <= writtenThroughMs) {
+                    absentBuckets.add(bucket);
+                    contiguous = bucket;
+                    continue;
+                }
+                break;
+            }
+            const advance = Math.min(contiguous, lastFinal - bucketSeconds);
             consumedBucket = consumedBucket === null ? advance : Math.max(consumedBucket, advance);
             localStorage.setItem('mylibre.bucket', String(consumedBucket));
             localStorage.setItem('mylibre.bucketSeconds', String(bucketSeconds));
