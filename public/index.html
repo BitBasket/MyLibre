@@ -9,27 +9,61 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
-    <link rel="stylesheet" href="/app.css?v=13">
+    <link rel="stylesheet" href="/app.css?v=18">
 </head>
 <body class="locked">
     <section id="unlock-gate" class="unlock-gate" aria-labelledby="unlock-title">
-        <form id="unlock-form" class="unlock-card" method="dialog" autocomplete="off">
+        <div class="unlock-card">
             <h1 id="unlock-title">Unlock glucose history</h1>
-            <p class="muted">Use the same GnuPG keypair the poller encrypts with (<code>data/keys/public.asc</code> and <code>data/keys/private.asc</code>).</p>
-            <div id="key-fields">
-                <label for="public-key-file">Public key</label>
-                <input id="public-key-file" type="file" accept=".asc,.txt,.gpg,.pgp,text/plain">
-                <textarea id="public-key" rows="6" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
-                <label for="private-key-file">Private key</label>
-                <input id="private-key-file" type="file" accept=".asc,.txt,.gpg,.pgp,text/plain">
-                <textarea id="private-key" rows="6" placeholder="-----BEGIN PGP PRIVATE KEY BLOCK-----" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+
+            <div class="key-modes" role="tablist">
+                <button type="button" id="mode-existing" class="mode active" aria-selected="true">I have a keypair</button>
+                <button type="button" id="mode-new" class="mode" aria-selected="false">Create a new keypair</button>
             </div>
-            <label for="pgp-passphrase">Passphrase</label>
-            <input id="pgp-passphrase" type="password" autocomplete="off" data-lpignore="true" data-1p-ignore="true" required>
-            <p id="unlock-error" class="unlock-error hidden" role="alert"></p>
-            <button type="submit" id="unlock-btn">Unlock</button>
-            <button type="button" id="forget-keys" class="secondary hidden">Forget saved keys</button>
-        </form>
+
+            <div id="existing-key-panel">
+                <p class="muted">Use the GnuPG keypair you saved (<code>public.asc</code> and <code>private.asc</code>).</p>
+                <div id="key-fields">
+                    <label for="public-key-file">Public key</label>
+                    <input id="public-key-file" type="file" accept=".asc,.txt,.gpg,.pgp,text/plain">
+                    <textarea id="public-key" rows="6" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+                    <label for="private-key-file">Private key</label>
+                    <input id="private-key-file" type="file" accept=".asc,.txt,.gpg,.pgp,text/plain">
+                    <textarea id="private-key" rows="6" placeholder="-----BEGIN PGP PRIVATE KEY BLOCK-----" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+                </div>
+                <form id="unlock-form" method="post" action="/" autocomplete="on" data-form-type="login">
+                    <label for="unlock-username">Username</label>
+                    <input id="unlock-username" name="username" type="text" autocomplete="username" value="mylibre" autocapitalize="off" spellcheck="false">
+                    <label for="pgp-passphrase">Passphrase</label>
+                    <input id="pgp-passphrase" name="password" type="password" autocomplete="current-password" required autofocus autocapitalize="off" autocorrect="off" spellcheck="false">
+                    <p id="unlock-error" class="unlock-error hidden" role="alert"></p>
+                    <button type="submit" id="unlock-btn">Unlock</button>
+                </form>
+                <button type="button" id="forget-keys" class="secondary hidden">Forget saved keys</button>
+            </div>
+
+            <div id="new-key-panel" class="hidden">
+                <p class="muted">Your keypair is created in this browser and never sent to the server. Download both files, keep the private key safe, and save the passphrase in your password manager.</p>
+                <form id="new-key-form" method="post" action="/" autocomplete="on" data-form-type="signup">
+                    <label for="new-username">Username</label>
+                    <input id="new-username" name="username" type="text" autocomplete="username" value="mylibre" autocapitalize="off" spellcheck="false">
+                    <label for="new-passphrase">Passphrase</label>
+                    <input id="new-passphrase" name="password" type="password" autocomplete="new-password" required minlength="12" autocapitalize="off" autocorrect="off" spellcheck="false">
+                    <label for="new-passphrase-confirm">Confirm passphrase</label>
+                    <input id="new-passphrase-confirm" name="new-password" type="password" autocomplete="new-password" required minlength="12" autocapitalize="off" autocorrect="off" spellcheck="false">
+                    <button type="submit" id="generate-btn">Generate keypair</button>
+                </form>
+                <p id="new-key-error" class="unlock-error hidden" role="alert"></p>
+
+                <div id="new-key-downloads" class="hidden">
+                    <p class="warn">Download both files now — this is the only copy. Without the private key and the passphrase your history cannot be recovered.</p>
+                    <button type="button" id="download-public" class="secondary">Download public.asc</button>
+                    <button type="button" id="download-private" class="secondary">Download private.asc</button>
+                    <label class="check"><input type="checkbox" id="downloaded-confirm"> I have downloaded and stored both files</label>
+                    <button type="button" id="continue-btn" disabled>Continue</button>
+                </div>
+            </div>
+        </div>
     </section>
     <main class="shell">
         <header class="top">
@@ -76,7 +110,7 @@
     </main>
     <script src="/vendor/chart.umd.min.js"></script>
     <script src="/vendor/openpgp.min.js"></script>
-    <script src="/pgp.js?v=13"></script>
-    <script src="/app.js?v=13"></script>
+    <script src="/pgp.js?v=17"></script>
+    <script src="/app.js?v=19"></script>
 </body>
 </html>

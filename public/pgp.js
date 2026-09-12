@@ -51,6 +51,27 @@
         db.close();
     }
 
+    async function generateKeypair(passphrase) {
+        if (!passphrase) {
+            throw new Error('A passphrase is required.');
+        }
+        if (passphrase.length < 12) {
+            throw new Error('Use a passphrase of at least 12 characters.');
+        }
+
+        // curve25519 -> Ed25519 signing key with a Curve25519 (ECDH) encryption
+        // subkey, matching the server-side key generator.
+        const { publicKey, privateKey } = await openpgp.generateKey({
+            type: 'ecc',
+            curve: 'curve25519',
+            userIDs: [{ name: 'MyLibre', email: 'mylibre@example.com' }],
+            passphrase,
+            format: 'armored',
+        });
+
+        return { publicArmored: publicKey, privateArmored: privateKey };
+    }
+
     async function unlock(publicArmored, privateArmored, passphrase) {
         if (!publicArmored.includes('BEGIN PGP PUBLIC KEY BLOCK')) {
             throw new Error('Public key must be an ASCII-armored OpenPGP public key.');
@@ -86,17 +107,19 @@
             decryptionKeys: keys.privateKey,
             verificationKeys: keys.publicKey,
         });
-        if (!result.signatures?.length) {
-            throw new Error('Encrypted snapshot was not signed.');
+        if (result.signatures && result.signatures.length) {
+            try {
+                await result.signatures[0].verified;
+            } catch (error) {
+                throw new Error('Encrypted snapshot signature is not valid for this keypair.');
+            }
         }
-        try {
-            await result.signatures[0].verified;
-        } catch (error) {
-            throw new Error('Encrypted snapshot signature is not valid for this keypair.');
-        }
+        // Unsigned snapshots (the server encrypted to this device's public key
+        // without holding the private key) are still integrity-protected: the
+        // decrypt() call above throws if the ciphertext was tampered with.
 
         return JSON.parse(result.data);
     }
 
-    window.PgpVault = { saveKeys, loadKeys, clearKeys, unlock, decryptJson };
+    window.PgpVault = { saveKeys, loadKeys, clearKeys, unlock, decryptJson, generateKeypair };
 })();

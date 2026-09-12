@@ -15,6 +15,11 @@
     // LibreLinkUp graphData is ~15-minute samples; keep those connected after a backfill.
     const GAP_MS = 20 * 60 * 1000;
     const MINUTE_MS = 60 * 1000;
+    // Cold start (no persisted history) probes at most this many buckets back,
+    // since with no listing a browser can only discover buckets by probing.
+    // 8640 x 300s = 30 days. Warm loads are incremental and are not capped.
+    const MAX_BACKFILL_BUCKETS = 8640;
+    const FETCH_CONCURRENCY = 8;
 
     const valueEl = document.getElementById('value');
     const arrowEl = document.getElementById('arrow');
@@ -22,6 +27,7 @@
     const ageEl = document.getElementById('age');
     const bannerEl = document.getElementById('banner');
     const sourceEl = document.getElementById('source-line');
+    const unlockGate = document.getElementById('unlock-gate');
     const unlockForm = document.getElementById('unlock-form');
     const unlockError = document.getElementById('unlock-error');
     const unlockBtn = document.getElementById('unlock-btn');
@@ -33,6 +39,22 @@
     const publicKeyFile = document.getElementById('public-key-file');
     const privateKeyFile = document.getElementById('private-key-file');
     const passphraseEl = document.getElementById('pgp-passphrase');
+    const unlockUsernameEl = document.getElementById('unlock-username');
+    const newUsernameEl = document.getElementById('new-username');
+    const modeExistingBtn = document.getElementById('mode-existing');
+    const modeNewBtn = document.getElementById('mode-new');
+    const existingPanel = document.getElementById('existing-key-panel');
+    const newPanel = document.getElementById('new-key-panel');
+    const newKeyForm = document.getElementById('new-key-form');
+    const newPassphraseEl = document.getElementById('new-passphrase');
+    const newPassphraseConfirmEl = document.getElementById('new-passphrase-confirm');
+    const generateBtn = document.getElementById('generate-btn');
+    const newKeyError = document.getElementById('new-key-error');
+    const newKeyDownloads = document.getElementById('new-key-downloads');
+    const downloadPublicBtn = document.getElementById('download-public');
+    const downloadPrivateBtn = document.getElementById('download-private');
+    const downloadedConfirmEl = document.getElementById('downloaded-confirm');
+    const continueBtn = document.getElementById('continue-btn');
     const buttons = [...document.querySelectorAll('.ranges button')];
     const canvas = document.getElementById('chart');
     const overviewCanvas = document.getElementById('chart-overview');
@@ -47,9 +69,10 @@
     let lastKnown = null;
     let offline = false;
     let allReadings = [];
-    let historyCache = new Map();
-    let historyRevisions = new Map();
-    let discoveredDays = null;
+    let bucketSeconds = 300;
+    let consumedBucket = null;
+    let lastCurrentTs = null;
+    const absentBuckets = new Set();
     let viewStart = null;
     let viewEnd = null;
     let customView = false;
@@ -123,128 +146,141 @@
         };
     }
 
-    function utcYmd(date) {
-        const year = date.getUTCFullYear();
-        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(date.getUTCDate()).padStart(2, '0');
-        return `${year}${month}${day}`;
+    function bucketOf(epochSeconds) {
+        return Math.floor(epochSeconds / bucketSeconds) * bucketSeconds;
     }
 
-    function addUtcDays(ymd, days) {
-        const year = Number(ymd.slice(0, 4));
-        const month = Number(ymd.slice(4, 6)) - 1;
-        const day = Number(ymd.slice(6, 8));
-        return utcYmd(new Date(Date.UTC(year, month, day + days)));
+    function persistedReadings() {
+        try {
+            const cached = JSON.parse(localStorage.getItem('mylibre.history') || '[]');
+            return Array.isArray(cached) ? cached : [];
+        } catch (error) {
+            return [];
+        }
     }
 
-    function daysFromStatus(status) {
-        if (Array.isArray(status?.historyDays) && status.historyDays.length) {
-            return status.historyDays.map(String);
-        }
-        if (!status?.earliestReadingAt) {
-            return null;
-        }
-        const end = new Date();
-        const start = new Date(status.earliestReadingAt);
-        const days = [];
-        let cursor = utcYmd(start);
-        const last = utcYmd(end);
-        while (cursor <= last) {
-            days.push(cursor);
-            cursor = addUtcDays(cursor, 1);
-        }
-        return days;
-    }
-
-    async function discoverDays() {
-        const days = [];
-        let cursor = utcYmd(new Date());
-        let misses = 0;
-        for (let i = 0; i < 400 && misses < 2; i += 1) {
-            const response = await fetchLive(`/history-${cursor}.json.asc`);
-            if (!isOkResponse(response)) {
-                misses += 1;
-                cursor = addUtcDays(cursor, -1);
-                continue;
-            }
-            misses = 0;
-            const payload = await readSnapshot(response);
-            historyCache.set(cursor, payload.readings || []);
-            days.push(cursor);
-            cursor = addUtcDays(cursor, -1);
-        }
-        return days.reverse();
-    }
-
-    async function resolveHistoryDays(status) {
-        const listed = daysFromStatus(status);
-        if (listed) {
-            discoveredDays = listed;
-            return listed;
-        }
-        if (discoveredDays) {
-            const today = utcYmd(new Date());
-            if (!discoveredDays.includes(today)) {
-                discoveredDays = [...discoveredDays, today];
-            }
-            return discoveredDays;
-        }
-        discoveredDays = await discoverDays();
-        return discoveredDays;
-    }
-
-    async function loadHistory(days, status = {}) {
-        const today = utcYmd(new Date());
-        const yesterday = addUtcDays(today, -1);
-        const listedDays = new Set(days);
-        for (const day of historyCache.keys()) {
-            if (!listedDays.has(day)) {
-                historyCache.delete(day);
-                historyRevisions.delete(day);
+    function mergedReadings(extra) {
+        const byTimestamp = new Map();
+        for (const reading of persistedReadings()) {
+            if (reading && reading.timestamp) {
+                byTimestamp.set(reading.timestamp, reading);
             }
         }
-        const revisions = status && status.historyRevisions && typeof status.historyRevisions === 'object'
-            ? status.historyRevisions
+        for (const reading of extra) {
+            if (reading && reading.timestamp) {
+                byTimestamp.set(reading.timestamp, reading);
+            }
+        }
+        const readings = [...byTimestamp.values()];
+        readings.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+        return readings;
+    }
+
+    // After a long outage the poller may write catch-up into buckets the
+    // dashboard already walked as 404s. Rewind to the left edge of a hole
+    // whose right edge is the live reading, once per new current timestamp.
+    function rewindForRestore(current) {
+        const currentTs = current && current.timestamp ? Date.parse(current.timestamp) : NaN;
+        if (!Number.isFinite(currentTs)) {
+            return;
+        }
+        const currentChanged = currentTs !== lastCurrentTs;
+        lastCurrentTs = currentTs;
+        if (!currentChanged) {
+            return;
+        }
+        absentBuckets.clear();
+
+        const times = persistedReadings()
+            .map((reading) => Date.parse(reading.timestamp))
+            .filter((time) => Number.isFinite(time))
+            .sort((a, b) => a - b);
+        times.push(currentTs);
+        let anchor = null;
+        for (let i = 1; i < times.length; i += 1) {
+            if (times[i] - times[i - 1] > GAP_MS && currentTs - times[i] <= GAP_MS) {
+                anchor = times[i - 1];
+            }
+        }
+        if (anchor == null) {
+            return;
+        }
+        const rewindTo = bucketOf(Math.floor(anchor / 1000)) - bucketSeconds;
+        consumedBucket = consumedBucket == null ? rewindTo : Math.min(consumedBucket, rewindTo);
+    }
+
+    // History lives in immutable, time-bucketed batches whose URLs are derived
+    // arithmetically from the clock: no listing, no backend. A missing bucket
+    // simply 404s (idle, gap, or pruned) and is skipped.
+    async function loadHistory(status) {
+        bucketSeconds = Number(status.bucketSeconds) || bucketSeconds;
+        const storedSeconds = Number(localStorage.getItem('mylibre.bucketSeconds'));
+        if (storedSeconds && storedSeconds !== bucketSeconds) {
+            consumedBucket = null;
+            absentBuckets.clear();
+        }
+
+        const earliest = status.earliestReadingAt
+            ? Math.floor(Date.parse(status.earliestReadingAt) / 1000)
             : null;
-        const fetches = [];
+        if (earliest === null) {
+            return mergedReadings([]);
+        }
 
-        for (const day of days) {
-            const revision = revisions ? revisions[day] : null;
-            const revisionChanged = revisions && revision != null && historyRevisions.get(day) !== revision;
-            if (day !== today && day !== yesterday && historyCache.has(day) && !revisionChanged) {
-                continue;
-            }
-            fetches.push((async () => {
-                const response = await fetchLive(`/history-${day}.json.asc`);
+        const firstBucket = bucketOf(earliest);
+        const openBucket = bucketOf(Math.floor(Date.now() / 1000));
+        const lastFinal = openBucket - bucketSeconds;
+        if (openBucket < firstBucket) {
+            return mergedReadings([]);
+        }
+
+        if (persistedReadings().length === 0) {
+            consumedBucket = null;
+        }
+        const floorBucket = lastFinal - MAX_BACKFILL_BUCKETS * bucketSeconds;
+        const from = consumedBucket === null
+            ? Math.max(firstBucket, floorBucket)
+            : Math.max(firstBucket, consumedBucket + bucketSeconds);
+
+        const buckets = [];
+        for (let bucket = from; bucket <= lastFinal; bucket += bucketSeconds) {
+            buckets.push(bucket);
+        }
+        if (!buckets.includes(openBucket)) {
+            buckets.push(openBucket);
+        }
+
+        const fetched = [];
+        for (let i = 0; i < buckets.length; i += FETCH_CONCURRENCY) {
+            await Promise.all(buckets.slice(i, i + FETCH_CONCURRENCY).map(async (bucket) => {
+                if (absentBuckets.has(bucket)) {
+                    return;
+                }
+                const response = await fetchLive(`/b/${bucket}.json.asc`);
                 if (!isOkResponse(response)) {
-                    if (!historyCache.has(day)) {
-                        historyCache.set(day, []);
+                    if (bucket !== openBucket) {
+                        absentBuckets.add(bucket);
                     }
                     return;
                 }
+                absentBuckets.delete(bucket);
                 const payload = await readSnapshot(response);
-                historyCache.set(day, payload.readings || []);
-                if (revisions && revision != null) {
-                    historyRevisions.set(day, revision);
+                for (const reading of payload.readings || []) {
+                    fetched.push(reading);
                 }
-            })());
+            }));
         }
 
-        await Promise.all(fetches);
-
-        const readings = [];
-        const seen = new Set();
-        for (const day of [...historyCache.keys()].sort()) {
-            for (const point of historyCache.get(day) || []) {
-                if (!point?.timestamp || seen.has(point.timestamp)) {
-                    continue;
-                }
-                seen.add(point.timestamp);
-                readings.push(point);
-            }
+        // Leave one finalized bucket unconsumed so a late flush is caught next poll.
+        // The open bucket is fetched every time and is not a checkpoint.
+        if (lastFinal >= firstBucket) {
+            const advance = lastFinal - bucketSeconds;
+            consumedBucket = consumedBucket === null ? advance : Math.max(consumedBucket, advance);
+            localStorage.setItem('mylibre.bucket', String(consumedBucket));
+            localStorage.setItem('mylibre.bucketSeconds', String(bucketSeconds));
         }
-        readings.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-        return readings;
+
+        return mergedReadings(fetched);
     }
 
     function formatAge(seconds) {
@@ -1086,14 +1122,20 @@
             offline = false;
             const current = await readSnapshot(currentRes);
             const status = isOkResponse(statusRes) ? await readSnapshot(statusRes) : {};
-            const readings = await loadHistory(await resolveHistoryDays(status), status);
+            rewindForRestore(current);
+            const readings = mergedReadings([...(await loadHistory(status)), current]);
             renderCurrent(current);
             renderChart(readings);
             if (statusRes.ok) {
                 sourceEl.textContent = `encrypted snapshot · ${status.provider || 'unknown'}`;
             }
             localStorage.setItem('mylibre.current', JSON.stringify(current));
-            localStorage.setItem('mylibre.history', JSON.stringify(readings));
+            try {
+                localStorage.setItem('mylibre.history', JSON.stringify(readings));
+            } catch (error) {
+                // Quota exceeded: keep the dashboard live rather than pinning it offline.
+                console.warn('Unable to cache glucose history locally', error);
+            }
         } catch (error) {
             console.error(error);
             offline = true;
@@ -1162,8 +1204,13 @@
         }
         document.body.classList.remove('locked');
         document.body.classList.add('unlocked');
-        passphraseEl.value = '';
         showUnlockError('');
+        // Clear after a tick so password managers can snapshot the submitted value.
+        setTimeout(() => {
+            passphraseEl.value = '';
+            newPassphraseEl.value = '';
+            newPassphraseConfirmEl.value = '';
+        }, 0);
         startPolling();
     }
 
@@ -1183,6 +1230,29 @@
             keyFields.classList.remove('hidden');
             forgetKeysBtn.classList.add('hidden');
         }
+        focusPassphrase();
+    }
+
+    function activePassphraseField() {
+        return newPanel.classList.contains('hidden') ? passphraseEl : newPassphraseEl;
+    }
+
+    function focusPassphrase(options = {}) {
+        if (!document.body.classList.contains('locked')) {
+            return;
+        }
+        const field = activePassphraseField();
+        if (!field) {
+            return;
+        }
+        field.focus({ preventScroll: true });
+        if (options.select) {
+            field.select();
+        }
+    }
+
+    function isUnlockControl(el) {
+        return Boolean(el && el.closest && el.closest('input, textarea, button, select, a, label'));
     }
 
     [publicKeyFile, privateKeyFile].forEach((input, index) => {
@@ -1195,6 +1265,117 @@
             (index === 0 ? publicKeyEl : privateKeyEl).value = text;
             input.value = '';
         });
+    });
+
+    let pendingKeys = null;
+    const downloaded = { public: false, private: false };
+
+    function setKeyMode(mode) {
+        const isNew = mode === 'new';
+        existingPanel.classList.toggle('hidden', isNew);
+        newPanel.classList.toggle('hidden', !isNew);
+        modeExistingBtn.classList.toggle('active', !isNew);
+        modeNewBtn.classList.toggle('active', isNew);
+        modeExistingBtn.setAttribute('aria-selected', String(!isNew));
+        modeNewBtn.setAttribute('aria-selected', String(isNew));
+        focusPassphrase();
+    }
+
+    function showNewKeyError(message) {
+        newKeyError.textContent = message || '';
+        newKeyError.classList.toggle('hidden', !message);
+    }
+
+    function refreshContinueState() {
+        continueBtn.disabled = !(downloaded.public && downloaded.private && downloadedConfirmEl.checked);
+    }
+
+    function downloadKey(filename, text) {
+        const blob = new Blob([text + '\n'], { type: 'application/pgp-keys' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    modeExistingBtn.addEventListener('click', () => setKeyMode('existing'));
+    modeNewBtn.addEventListener('click', () => setKeyMode('new'));
+
+    unlockUsernameEl.addEventListener('input', () => {
+        newUsernameEl.value = unlockUsernameEl.value;
+    });
+    newUsernameEl.addEventListener('input', () => {
+        unlockUsernameEl.value = newUsernameEl.value;
+    });
+
+    newKeyForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        showNewKeyError('');
+        if (newPassphraseEl.value !== newPassphraseConfirmEl.value) {
+            showNewKeyError('The passphrases do not match.');
+            focusPassphrase({ select: true });
+            return;
+        }
+        generateBtn.disabled = true;
+        try {
+            pendingKeys = await PgpVault.generateKeypair(newPassphraseEl.value);
+            downloaded.public = false;
+            downloaded.private = false;
+            downloadedConfirmEl.checked = false;
+            newKeyDownloads.classList.remove('hidden');
+            refreshContinueState();
+        } catch (error) {
+            showNewKeyError(error.message || String(error));
+            focusPassphrase({ select: true });
+        } finally {
+            generateBtn.disabled = false;
+        }
+    });
+
+    downloadPublicBtn.addEventListener('click', () => {
+        if (!pendingKeys) {
+            return;
+        }
+        downloadKey('public.asc', pendingKeys.publicArmored);
+        downloaded.public = true;
+        refreshContinueState();
+    });
+
+    downloadPrivateBtn.addEventListener('click', () => {
+        if (!pendingKeys) {
+            return;
+        }
+        downloadKey('private.asc', pendingKeys.privateArmored);
+        downloaded.private = true;
+        refreshContinueState();
+    });
+
+    downloadedConfirmEl.addEventListener('change', refreshContinueState);
+
+    continueBtn.addEventListener('click', async () => {
+        if (!pendingKeys) {
+            return;
+        }
+        showNewKeyError('');
+        continueBtn.disabled = true;
+        try {
+            const keys = await PgpVault.unlock(
+                pendingKeys.publicArmored,
+                pendingKeys.privateArmored,
+                newPassphraseEl.value,
+            );
+            newKeyDownloads.classList.add('hidden');
+            pendingKeys = null;
+            await enterUnlocked(keys, true);
+        } catch (error) {
+            showNewKeyError(error.message || String(error));
+            refreshContinueState();
+        }
     });
 
     unlockForm.addEventListener('submit', async (event) => {
@@ -1210,13 +1391,41 @@
             await enterUnlocked(keys, true);
         } catch (error) {
             showUnlockError(error.message || String(error));
+            focusPassphrase({ select: true });
         } finally {
             unlockBtn.disabled = false;
         }
     });
 
+    unlockGate.addEventListener('pointerdown', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element) || isUnlockControl(target)) {
+            return;
+        }
+        requestAnimationFrame(() => focusPassphrase());
+    });
+
+    window.addEventListener('focus', () => {
+        if (document.activeElement === document.body || document.activeElement === document.documentElement) {
+            focusPassphrase();
+        }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && document.activeElement === document.body) {
+            focusPassphrase();
+        }
+    });
+
     forgetKeysBtn.addEventListener('click', () => lock(true));
     lockBtn.addEventListener('click', () => lock(false));
+
+    const storedBucket = Number(localStorage.getItem('mylibre.bucket'));
+    const storedBucketSeconds = Number(localStorage.getItem('mylibre.bucketSeconds'));
+    if (Number.isFinite(storedBucket) && storedBucket > 0 && storedBucketSeconds > 0) {
+        consumedBucket = storedBucket;
+        bucketSeconds = storedBucketSeconds;
+    }
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/service-worker.js').catch(() => {});
@@ -1227,5 +1436,7 @@
             return;
         }
         rememberKeys(saved.publicArmored, saved.privateArmored);
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => {
+        focusPassphrase();
+    });
 })();

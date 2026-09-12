@@ -5,9 +5,6 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-use App\Database\EncryptedGlucoseRepository;
-use App\Database\SqliteHistoryImporter;
-use App\Security\PgpCrypto;
 use App\Security\PgpKeyGenerator;
 use App\Support\Config;
 use App\Support\Env;
@@ -71,41 +68,13 @@ if ($prompt !== null) {
     }
 }
 
-$crypto = new PgpCrypto($config->publicKeyPath, $config->privateKeyPath);
-
-$repository = new EncryptedGlucoseRepository($config->dataPath, $crypto, $passphrase);
-$sqliteCandidates = [];
-foreach (array_slice($argv, 1) as $arg) {
-    if (str_starts_with($arg, '--from=')) {
-        $sqliteCandidates[] = substr($arg, 7);
-    }
-}
-if (str_ends_with($config->sqlitePath, '.sqlite') && is_file($config->sqlitePath)) {
-    $sqliteCandidates[] = $config->sqlitePath;
-}
-$defaultSqlite = $root . '/data/glucose.sqlite';
-if (is_file($defaultSqlite)) {
-    $sqliteCandidates[] = $defaultSqlite;
-}
-
-$migrated = 0;
-foreach (array_unique($sqliteCandidates) as $sqlitePath) {
-    $migrated += SqliteHistoryImporter::importFile($sqlitePath, $repository);
-}
-$repository->flush();
-
 echo "PGP keys: {$config->publicKeyPath}\n";
 echo "Private key: {$config->privateKeyPath}\n";
-echo "Encrypted history: {$config->dataPath}\n";
 if ($wrotePassphrase) {
     echo "PGP_PASSPHRASE was written to .env (not printed here).\n";
 }
-if ($migrated > 0) {
-    echo "Migrated {$migrated} SQLite readings into the encrypted store.\n";
-} else {
-    echo 'Encrypted store readings: ' . count($repository->all()) . "\n";
-}
-echo "Unlock the dashboard with the same public.asc, private.asc, and passphrase.\n";
+echo "Import v1 SQLite history with: php bin/migrate-sqlite.php\n";
+echo "Unlock the dashboard with your keypair and passphrase.\n";
 
 function askForPassphrase(PassphrasePrompt $prompt, bool $keysExist): string
 {

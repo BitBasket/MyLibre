@@ -5,21 +5,25 @@ declare(strict_types=1);
 namespace App\Support;
 
 use App\Contract\GlucoseProvider;
-use App\Contract\GlucoseRepository;
-use App\Database\EncryptedGlucoseRepository;
+use App\Export\BucketWriter;
 use App\LibreLink\LibreLinkUpProvider;
 use App\LibreLink\SessionStore;
 use App\Mock\MockGlucoseProvider;
+use App\Poller\PollStateStore;
 use App\Security\PgpCrypto;
 use InvalidArgumentException;
 
 final class App
 {
-    private ?GlucoseRepository $repository = null;
-
     private ?GlucoseProvider $provider = null;
 
     private ?PgpCrypto $crypto = null;
+
+    private ?PgpCrypto $recipient = null;
+
+    private ?PollStateStore $pollState = null;
+
+    private ?BucketWriter $bucketWriter = null;
 
     public function __construct(
         public readonly Config $config,
@@ -57,12 +61,51 @@ final class App
         return $this->crypto;
     }
 
-    public function repository(): GlucoseRepository
+    /**
+     * The key the outbound dashboard snapshots are encrypted to. When a
+     * user-supplied public key is configured (PGP_USER_PUBLIC_KEY_PATH) it is
+     * used on its own, so the browser-generated private key never reaches the
+     * server. Otherwise the local keypair is used, as before.
+     */
+    public function recipientCrypto(): PgpCrypto
     {
-        return $this->repository ??= new EncryptedGlucoseRepository(
-            $this->config->dataPath,
-            $this->crypto(),
+        if ($this->config->userPublicKeyPath === '') {
+            return $this->crypto();
+        }
+
+        if ($this->recipient !== null) {
+            return $this->recipient;
+        }
+
+        if (!is_readable($this->config->userPublicKeyPath)) {
+            throw new InvalidArgumentException(
+                'PGP_USER_PUBLIC_KEY_PATH points to a missing or unreadable file.'
+            );
+        }
+
+        $crypto = new PgpCrypto($this->config->userPublicKeyPath);
+        $crypto->validate();
+
+        return $this->recipient = $crypto;
+    }
+
+    public function pollState(): PollStateStore
+    {
+        return $this->pollState ??= new PollStateStore($this->config->pollStatePath);
+    }
+
+    /**
+     * Writes the static files the dashboard reads. History goes out as
+     * immutable, time-bucketed batches encrypted to the recipient key.
+     */
+    public function bucketWriter(): BucketWriter
+    {
+        return $this->bucketWriter ??= new BucketWriter(
+            $this->config,
+            $this->config->publicPath,
+            $this->recipientCrypto(),
             $this->config->unlockPassphrase,
+            $this->config->bucketSeconds,
         );
     }
 

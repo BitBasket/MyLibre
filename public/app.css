@@ -95,6 +95,7 @@ body:not(.locked) .unlock-gate {
 }
 
 .unlock-card textarea,
+.unlock-card input[type="text"],
 .unlock-card input[type="password"],
 .unlock-card input[type="file"] {
     width: 100%;
@@ -107,8 +108,15 @@ body:not(.locked) .unlock-gate {
     font: 0.82rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.unlock-card input[type="text"],
 .unlock-card input[type="password"] {
     font-family: inherit;
+}
+
+.unlock-card input[type="password"]:focus,
+.unlock-card input[type="text"]:focus {
+    outline: 2px solid #2a8f84;
+    border-color: #2a8f84;
 }
 
 .unlock-card input[type="file"] {
@@ -136,6 +144,67 @@ body:not(.locked) .unlock-gate {
 .unlock-error {
     margin: 0.8rem 0 0;
     color: var(--bad);
+}
+
+.key-modes {
+    display: flex;
+    gap: 0.4rem;
+    margin: 0.6rem 0 0.3rem;
+}
+
+.unlock-card button.mode {
+    flex: 1;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.45rem 0.6rem;
+    cursor: pointer;
+    font: inherit;
+}
+
+.unlock-card button.mode.active {
+    background: #1a6b62;
+    border-color: #1a6b62;
+    color: #fff;
+}
+
+.unlock-card .warn {
+    margin: 0.9rem 0 0;
+    color: var(--stale);
+    font-size: 0.85rem;
+}
+
+.unlock-card label.check {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.unlock-card label.check input {
+    width: auto;
+    flex: none;
+}
+
+.unlock-card #generate-btn,
+.unlock-card #continue-btn {
+    margin-top: 1rem;
+    width: 100%;
+    background: #1a6b62;
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 650;
+}
+
+.unlock-card #continue-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .muted {

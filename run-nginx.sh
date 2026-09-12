@@ -1,27 +1,61 @@
 #!/bin/bash
 
-# Function to check if a port is free
+# Function to check if a port is free.
+# Returns 0 if the port is available, 1 if something is already listening on it.
 is_port_free() {
     local port=$1
-    if ! lsof -Pi :$port -sTCP:LISTEN -t >/dev/null 2>&1; then
-        return 0  # Port is free
-    else
-        return 1  # Port is in use
+
+    # Preferred: ss — reports any socket LISTENing on the port
+    if command -v ss >/dev/null 2>&1; then
+        if ss -ltn "sport = :$port" 2>/dev/null | grep -q LISTEN; then
+            return 1  # Port is in use
+        fi
     fi
+
+    # lsof as a second opinion (it can be blind inside containers, so never trust
+    # a negative from it alone)
+    if command -v lsof >/dev/null 2>&1; then
+        if lsof -Pi :"$port" -sTCP:LISTEN -t >/dev/null 2>&1; then
+            return 1  # Port is in use
+        fi
+    fi
+
+    # Authoritative check: try to connect. A refused connection means nothing is
+    # listening, so the port can be bound. timeout guards against a listener with a
+    # full backlog hanging the script on bash's untimed /dev/tcp connect.
+    # (the fd lives in the subshell, so it is closed as soon as the test finishes)
+    local rc=0
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 1 bash -c 'exec 3<>"/dev/tcp/127.0.0.1/$1"' _ "$port" 2>/dev/null || rc=$?
+    else
+        (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null || rc=$?
+    fi
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
+        return 1  # Connected, or the connect hung — either way, don't gamble on it
+    fi
+    return 0  # Port is free
 }
 
-# Find first available port starting from 8000
-PORT=8000
-while ! is_port_free $PORT; do
+# Preferred port, and the last port we are willing to try
+BASE_PORT=8000
+MAX_PORT=9000
+
+# Find the first available port starting from BASE_PORT
+PORT=$BASE_PORT
+while ! is_port_free "$PORT"; do
     echo "Port $PORT is in use, trying next port..."
     PORT=$((PORT + 1))
-    
+
     # Safety check to avoid infinite loop
-    if [ $PORT -gt 9000 ]; then
-        echo "Error: No free ports found between 8000-9000"
+    if [ "$PORT" -gt "$MAX_PORT" ]; then
+        echo "Error: No free ports found between $BASE_PORT-$MAX_PORT"
         exit 1
     fi
 done
+
+if [ "$PORT" -ne "$BASE_PORT" ]; then
+    echo "Using free port $PORT instead of $BASE_PORT."
+fi
 
 # Get absolute path to public directory and nginx config
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

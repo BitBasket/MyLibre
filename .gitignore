@@ -9,5 +9,6 @@
 /public/history-*.json
 /public/status.json
 /public/*.asc
+/public/b/
 /.phpunit.cache
 /phpunit.result.cache

@@ -28,6 +28,10 @@ final class Config
         public readonly string $publicKeyPath = '',
         public readonly string $privateKeyPath = '',
         public readonly string $unlockPassphrase = '',
+        public readonly string $userPublicKeyPath = '',
+        public readonly string $pollStatePath = '',
+        public readonly int $bucketSeconds = 300,
+        public readonly string $publicPath = '',
     ) {
     }
 
@@ -37,6 +41,7 @@ final class Config
 
         $sqlite = Env::get('SQLITE_PATH', '') ?? '';
         $session = Env::get('SESSION_PATH', 'data/libre-session.json.asc') ?? 'data/libre-session.json.asc';
+        $userPublic = Env::get('PGP_USER_PUBLIC_KEY_PATH', '') ?? '';
 
         return new self(
             root: $root,
@@ -56,6 +61,10 @@ final class Config
             publicKeyPath: self::absolutePath($root, Env::get('PGP_PUBLIC_KEY_PATH', 'data/keys/public.asc') ?? 'data/keys/public.asc'),
             privateKeyPath: self::absolutePath($root, Env::get('PGP_PRIVATE_KEY_PATH', 'data/keys/private.asc') ?? 'data/keys/private.asc'),
             unlockPassphrase: Env::get('PGP_PASSPHRASE', '') ?? '',
+            userPublicKeyPath: $userPublic === '' ? '' : self::absolutePath($root, $userPublic),
+            pollStatePath: self::absolutePath($root, Env::get('POLL_STATE_PATH', 'data/poll-state.json') ?? 'data/poll-state.json'),
+            bucketSeconds: self::positiveInt('BUCKET_SECONDS', Env::get('BUCKET_SECONDS', '300'), 300),
+            publicPath: self::absolutePath($root, Env::get('PUBLIC_PATH', 'public') ?? 'public'),
             abbottPollSeconds: self::positiveInt('ABBOTT_POLL_SECONDS', Env::get('ABBOTT_POLL_SECONDS', '60'), 60),
             browserPollSeconds: self::positiveInt('BROWSER_POLL_SECONDS', Env::get('BROWSER_POLL_SECONDS', '5'), 5),
         );

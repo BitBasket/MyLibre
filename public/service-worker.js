@@ -1,4 +1,4 @@
-const CACHE = 'mylibre-static-v13';
+const CACHE = 'mylibre-static-v19';
 const ASSETS = [
     '/',
     '/index.html',
@@ -37,7 +37,7 @@ self.addEventListener('fetch', (event) => {
         || url.pathname === '/current.json.asc'
         || url.pathname === '/status.json'
         || url.pathname === '/status.json.asc'
-        || /^\/history-\d{8}\.json(\.asc)?$/.test(url.pathname)) {
+        || /^\/b\/\d+\.json(\.asc)?$/.test(url.pathname)) {
         event.respondWith(
             fetch(event.request).catch(() => new Response(JSON.stringify({
                 error: 'offline',

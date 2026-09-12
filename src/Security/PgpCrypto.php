@@ -10,45 +10,66 @@ final class PgpCrypto
 {
     public function __construct(
         private readonly string $publicKeyPath,
-        private readonly string $privateKeyPath,
+        private readonly string $privateKeyPath = '',
         private readonly string $gpg = 'gpg',
     ) {
     }
 
+    public function hasPrivateKey(): bool
+    {
+        return $this->privateKeyPath !== '';
+    }
+
+    /**
+     * Encrypts to the configured public key. When a private key is present the
+     * payload is also signed; in public-key-only mode the ciphertext is unsigned
+     * and its authenticity rests on the message's integrity protection.
+     */
     public function encrypt(string $plaintext, ?string $passphrase = null): string
     {
-        if ($passphrase === null || $passphrase === '') {
-            throw new RuntimeException('A passphrase is required for signed encryption.');
-        }
-
         $home = $this->home();
         try {
             $this->writeCompatConfig($home);
             $this->import($home, $this->publicKeyPath);
-            $this->import($home, $this->privateKeyPath);
-            $fingerprint = $this->fingerprint($home, true);
-            [$out, $status] = $this->run(
-                $home,
-                [
-                    '--batch',
-                    '--yes',
+
+            $options = [];
+            $secret = null;
+
+            if ($this->hasPrivateKey()) {
+                if ($passphrase === null || $passphrase === '') {
+                    throw new RuntimeException('A passphrase is required for signed encryption.');
+                }
+                $this->import($home, $this->privateKeyPath);
+                $fingerprint = $this->fingerprint($home, true);
+                $options = [
                     '--pinentry-mode', 'loopback',
                     '--passphrase-fd', '3',
+                    '--local-user', $fingerprint,
+                    '--sign',
+                ];
+                $secret = $passphrase;
+            } else {
+                $fingerprint = $this->fingerprint($home, false);
+            }
+
+            [$out, $status] = $this->run(
+                $home,
+                array_merge($options, [
+                    '--batch',
+                    '--yes',
                     '--armor',
                     '--status-fd', '2',
                     '--rfc4880',
                     '--compress-algo', 'ZIP',
                     '--cipher-algo', 'AES256',
-                    '--local-user', $fingerprint,
-                    '--sign',
                     '--trust-model', 'always',
                     '--recipient', $fingerprint,
                     '--encrypt',
-                ],
+                ]),
                 $plaintext,
-                $passphrase,
+                $secret,
             );
-            if (!str_contains($status, 'SIG_CREATED')) {
+            if ($this->hasPrivateKey() && !str_contains($status, 'SIG_CREATED')) {
                 throw new RuntimeException('PGP signature was not created.');
             }
             if (!str_contains($out, 'BEGIN PGP MESSAGE')) {
@@ -61,8 +82,68 @@ final class PgpCrypto
         }
     }
 
-    public function decrypt(string $ciphertext, string $passphrase): string
+    /**
+     * Encrypts the given files in place to the configured public key, producing
+     * `<path>.asc` for each. Uses GnuPG's --multifile so many batches are
+     * encrypted in a single invocation (the alternative — one `gpg` per file,
+     * each with its own homedir, key import and agent shutdown — takes minutes
+     * for thousands of buckets).
+     *
+     * Recipient-only (unsigned): integrity comes from the message's own
+     * protection, which is exactly the relay design. GnuPG cannot combine
+     * --sign with --multifile, and signed batches are not required.
+     *
+     * @param list<string> $paths
+     */
+    public function encryptFiles(array $paths): void
     {
+        foreach (array_chunk($paths, 500) as $chunk) {
+            $this->encryptFileChunk($chunk);
+        }
+    }
+
+    /**
+     * @param list<string> $paths
+     */
+    private function encryptFileChunk(array $paths): void
+    {
+        if ($paths === []) {
+            return;
+        }
+
+        $home = $this->home();
+        try {
+            $this->writeCompatConfig($home);
+            $this->import($home, $this->publicKeyPath);
+            $fingerprint = $this->fingerprint($home, false);
+
+            $this->run(
+                $home,
+                array_merge([
+                    '--batch',
+                    '--yes',
+                    '--multifile',
+                    '--armor',
+                    '--status-fd', '2',
+                    '--rfc4880',
+                    '--compress-algo', 'ZIP',
+                    '--cipher-algo', 'AES256',
+                    '--trust-model', 'always',
+                    '--recipient', $fingerprint,
+                    '--encrypt',
+                ], $paths),
+                '',
+            );
+        } finally {
+            $this->cleanup($home);
+        }
+    }
+
+    public function decrypt(string $ciphertext, string $passphrase, bool $requireSignature = true): string
+    {
+        if (!$this->hasPrivateKey()) {
+            throw new RuntimeException('No private key is configured for decryption.');
+        }
         if ($passphrase === '') {
             throw new RuntimeException('A passphrase is required to unlock encrypted data.');
         }
@@ -92,7 +173,7 @@ final class PgpCrypto
                     break;
                 }
             }
-            if (!$valid) {
+            if ($requireSignature && !$valid) {
                 throw new RuntimeException('Encrypted payload has no valid signature from the configured key.');
             }
 
@@ -102,17 +183,36 @@ final class PgpCrypto
         }
     }
 
-    public function validate(string $passphrase): void
+    public function validate(string $passphrase = ''): void
     {
-        if (!is_readable($this->publicKeyPath) || !is_readable($this->privateKeyPath)) {
-            throw new RuntimeException('Configured PGP key files are missing or unreadable.');
+        if (!is_readable($this->publicKeyPath)) {
+            throw new RuntimeException('Configured PGP public key file is missing or unreadable.');
         }
 
         $public = file_get_contents($this->publicKeyPath);
+        if ($public === false || !str_contains($public, 'BEGIN PGP PUBLIC KEY BLOCK')) {
+            throw new RuntimeException('The public PGP key must be an ASCII-armored key block.');
+        }
+
+        if (!$this->hasPrivateKey()) {
+            $home = $this->home();
+            try {
+                $this->writeCompatConfig($home);
+                $this->import($home, $this->publicKeyPath);
+                $this->fingerprint($home, false);
+            } finally {
+                $this->cleanup($home);
+            }
+
+            return;
+        }
+
+        if (!is_readable($this->privateKeyPath)) {
+            throw new RuntimeException('Configured PGP private key file is missing or unreadable.');
+        }
+
         $private = file_get_contents($this->privateKeyPath);
-        if ($public === false || $private === false
-            || !str_contains($public, 'BEGIN PGP PUBLIC KEY BLOCK')
-            || !str_contains($private, 'BEGIN PGP PRIVATE KEY BLOCK')) {
+        if ($private === false || !str_contains($private, 'BEGIN PGP PRIVATE KEY BLOCK')) {
             throw new RuntimeException('PGP keys must be ASCII-armored key blocks.');
         }
         if ($passphrase === '') {
