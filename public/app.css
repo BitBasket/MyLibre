@@ -47,6 +47,13 @@ html, body {
     text-transform: uppercase;
 }
 
+.top-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    justify-content: flex-end;
+}
+
 .lock-btn,
 .unlock-card button.secondary {
     background: transparent;
@@ -56,6 +63,16 @@ html, body {
     padding: 0.4rem 0.9rem;
     cursor: pointer;
     font: inherit;
+}
+
+.io-status {
+    margin: 0.55rem 0 0;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.io-status.error {
+    color: var(--bad);
 }
 
 body.locked .shell {

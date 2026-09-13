@@ -40,6 +40,10 @@
     const unlockBtn = document.getElementById('unlock-btn');
     const forgetKeysBtn = document.getElementById('forget-keys');
     const lockBtn = document.getElementById('lock-btn');
+    const exportBtn = document.getElementById('export-btn');
+    const importBtn = document.getElementById('import-btn');
+    const importFile = document.getElementById('import-file');
+    const ioStatusEl = document.getElementById('io-status');
     const keyFields = document.getElementById('key-fields');
     const publicKeyEl = document.getElementById('public-key');
     const privateKeyEl = document.getElementById('private-key');
@@ -164,6 +168,104 @@
         } catch (error) {
             return [];
         }
+    }
+
+    function persistHistory(readings) {
+        try {
+            localStorage.setItem('mylibre.history', JSON.stringify(readings));
+            return true;
+        } catch (error) {
+            console.warn('Unable to cache glucose history locally', error);
+            return false;
+        }
+    }
+
+    function showIoStatus(message, isError) {
+        ioStatusEl.textContent = message || '';
+        ioStatusEl.classList.toggle('hidden', !message);
+        ioStatusEl.classList.toggle('error', !!isError);
+    }
+
+    function downloadText(filename, text, type) {
+        const blob = new Blob([text], { type: type || 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    function parseHistoryExport(text) {
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (error) {
+            throw new Error('That file is not valid JSON.');
+        }
+        const list = Array.isArray(data)
+            ? data
+            : (data && Array.isArray(data.readings) ? data.readings : null);
+        if (!list) {
+            throw new Error('That file is not a glucose history export.');
+        }
+        const readings = list.filter((item) => (
+            item
+            && item.timestamp
+            && Number.isFinite(Date.parse(item.timestamp))
+        ));
+        if (!readings.length) {
+            throw new Error('No readings found in that file.');
+        }
+        return readings;
+    }
+
+    function historyForExport() {
+        return allReadings.length ? allReadings : persistedReadings();
+    }
+
+    function exportHistory() {
+        const readings = historyForExport();
+        persistHistory(readings);
+        downloadText(
+            'mylibre.history.json',
+            JSON.stringify(readings),
+            'application/json',
+        );
+        showIoStatus(`Exported ${readings.length} reading${readings.length === 1 ? '' : 's'}.`);
+    }
+
+    async function importHistoryFile(file) {
+        const imported = parseHistoryExport(await readFileAsText(file));
+        const before = new Set(
+            [...persistedReadings(), ...allReadings]
+                .map((reading) => reading && reading.timestamp)
+                .filter(Boolean),
+        ).size;
+        const readings = mergedReadings([...allReadings, ...imported]);
+        if (!persistHistory(readings)) {
+            throw new Error('Browser storage is full; history was not saved.');
+        }
+        renderChart(readings);
+        const latest = readings[readings.length - 1];
+        if (latest) {
+            const latestTs = Date.parse(latest.timestamp);
+            const knownTs = lastKnown && lastKnown.timestamp
+                ? Date.parse(lastKnown.timestamp)
+                : -Infinity;
+            if (Number.isFinite(latestTs) && latestTs >= knownTs) {
+                renderCurrent(latest);
+                try {
+                    localStorage.setItem('mylibre.current', JSON.stringify(latest));
+                } catch (error) {
+                    // Quota: history already persisted; current cache is optional.
+                }
+            }
+        }
+        const added = Math.max(0, readings.length - before);
+        showIoStatus(`Imported ${imported.length} reading${imported.length === 1 ? '' : 's'} · ${added} new · ${readings.length} stored.`);
     }
 
     function mergedReadings(extra) {
@@ -1186,12 +1288,7 @@
                 sourceEl.textContent = `encrypted snapshot · ${status.provider || 'unknown'}`;
             }
             localStorage.setItem('mylibre.current', JSON.stringify(current));
-            try {
-                localStorage.setItem('mylibre.history', JSON.stringify(readings));
-            } catch (error) {
-                // Quota exceeded: keep the dashboard live rather than pinning it offline.
-                console.warn('Unable to cache glucose history locally', error);
-            }
+            persistHistory(readings);
         } catch (error) {
             console.error(error);
             offline = true;
@@ -1276,6 +1373,7 @@
         librelinkLogin.classList.add('hidden');
         librelinkPassword.value = '';
         showLibreLinkError('');
+        showIoStatus('');
         if (refreshTimer) {
             clearInterval(refreshTimer);
             refreshTimer = null;
@@ -1351,15 +1449,7 @@
     }
 
     function downloadKey(filename, text) {
-        const blob = new Blob([text + '\n'], { type: 'application/pgp-keys' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 0);
+        downloadText(filename, text + '\n', 'application/pgp-keys');
     }
 
     modeExistingBtn.addEventListener('click', () => setKeyMode('existing'));
@@ -1443,6 +1533,9 @@
         showLibreLinkError('');
         librelinkBtn.disabled = true;
         try {
+            if (!window.isSecureContext) {
+                throw new Error('LibreLinkUp login requires HTTPS.');
+            }
             const response = await fetch('/api/librelink/login', {
                 method: 'POST',
                 cache: 'no-store',
@@ -1508,6 +1601,28 @@
 
     forgetKeysBtn.addEventListener('click', () => lock(true));
     lockBtn.addEventListener('click', () => lock(false));
+
+    exportBtn.addEventListener('click', () => {
+        try {
+            exportHistory();
+        } catch (error) {
+            showIoStatus(error.message || String(error), true);
+        }
+    });
+
+    importBtn.addEventListener('click', () => importFile.click());
+    importFile.addEventListener('change', async () => {
+        const file = importFile.files && importFile.files[0];
+        importFile.value = '';
+        if (!file) {
+            return;
+        }
+        try {
+            await importHistoryFile(file);
+        } catch (error) {
+            showIoStatus(error.message || String(error), true);
+        }
+    });
 
     const storedBucket = Number(localStorage.getItem('mylibre.bucket'));
     const storedBucketSeconds = Number(localStorage.getItem('mylibre.bucketSeconds'));

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http;
 
 /**
- * Forwards /api/librelink/* from the static file server (php -S) to the
- * poller's loopback AUTH_LISTEN socket.
+ * Forwards /api/librelink/* from the public PHP API to the poller's
+ * loopback AUTH_LISTEN socket.
  */
 final class AuthIntakeProxy
 {

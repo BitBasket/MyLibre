@@ -12,9 +12,9 @@ use App\Support\Logger;
 /**
  * HTTP adapter for a one-shot LibreLinkUp login.
  *
- * Same request shape a Lambda function URL can accept later: POST JSON
- * {email, password, patientId?} and persist only the encrypted session token.
- * The password is never logged and never written to disk.
+ * The public PHP API forwards POST JSON {email, password, patientId?} here
+ * over loopback. Persist only the encrypted session token. The password is
+ * never logged and never written to disk.
  */
 final class AuthIntakeHandler
 {

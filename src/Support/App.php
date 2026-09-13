@@ -140,7 +140,7 @@ final class App
     /**
      * Loopback HTTP intake for a dashboard LibreLinkUp login. Null when
      * AUTH_LISTEN is unset or the provider is not LibreLinkUp. Bind is
-     * loopback-only; nginx proxies /api/librelink/ to it.
+     * loopback-only; the public PHP API (Kernel) proxies /api/librelink/ here.
      */
     public function authIntake(): ?AuthIntakeServer
     {

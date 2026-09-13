@@ -81,9 +81,11 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
 fi
 
 # Run nginx container.
-# Host networking is required so /api/librelink/ can reach the poller's
-# loopback AUTH_LISTEN (127.0.0.1:8766). -p is ignored with --network host,
-# so the listen port is rewritten to $PORT.
+# Host networking is required so /api/librelink/ can reach the PHP API
+# on 127.0.0.1:8765 (`composer start`), which forwards to the poller.
+# -p is ignored with --network host, so the listen port is rewritten to $PORT.
+# HTTP here is for static files. LibreLinkUp login is refused unless TLS
+# terminates in front (X-Forwarded-Proto: https).
 echo "Starting nginx on port $PORT..."
 DOCKER_ARGS=(
     --name "$CONTAINER_NAME"

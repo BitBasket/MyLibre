@@ -9,10 +9,9 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Tiny loopback HTTP server. The poller process is already running; nginx
+ * Tiny loopback HTTP server. The public PHP API (Kernel / bin/serve.php)
  * reverse-proxies /api/librelink/ here. This is not a public socket and not
- * a WebSocket — the browser talks HTTPS to nginx, same as a future Lambda
- * function URL.
+ * a WebSocket — the browser talks to the PHP API (HTTPS on a remote host).
  */
 final class AuthIntakeServer
 {

@@ -27,7 +27,8 @@
         "init-pgp": "php bin/init-pgp.php",
         "migrate-sqlite": "php bin/migrate-sqlite.php",
         "poll": "php bin/poll-glucose.php",
-        "serve": "php -S 127.0.0.1:8765 -t public public/router.php"
+        "serve": "php bin/serve.php",
+        "start": "php bin/serve.php"
     },
     "config": {
         "sort-packages": true
