@@ -15,6 +15,9 @@
     // LibreLinkUp graphData is ~15-minute samples; keep those connected after a backfill.
     const GAP_MS = 20 * 60 * 1000;
     const MINUTE_MS = 60 * 1000;
+    const DAY_MS = 24 * 3600 * 1000;
+    const PLOT_10M_MS = 10 * MINUTE_MS;
+    const PLOT_1H_MS = 60 * MINUTE_MS;
     // Cold start (no persisted history) probes at most this many buckets back,
     // since with no listing a browser can only discover buckets by probing.
     // 8640 x 300s = 30 days. Warm loads are incremental and are not capped.
@@ -868,14 +871,19 @@
         return points;
     }
 
-    function withGaps(points) {
+    function gapLimitMs(intervalMs) {
+        return Math.max(GAP_MS, intervalMs * 2);
+    }
+
+    function withGaps(points, intervalMs = MINUTE_MS) {
         if (points.length === 0) {
             return [];
         }
+        const limit = gapLimitMs(intervalMs);
         const series = [];
         let previous = null;
         for (const point of points) {
-            if (previous && point.x - previous.x > GAP_MS) {
+            if (previous && point.x - previous.x > limit) {
                 series.push({ x: previous.x + 1, y: null, reading: null });
             }
             series.push(point);
@@ -1012,15 +1020,53 @@
         return sampled;
     }
 
-    function overviewSeries(points, maxPoints) {
+    // Stock-tracker resolution: 1-minute through 24h, 10-minute through 5d, hourly after that.
+    function plotIntervalMs(spanMs) {
+        if (spanMs >= 5 * DAY_MS) {
+            return PLOT_1H_MS;
+        }
+        if (spanMs > DAY_MS) {
+            return PLOT_10M_MS;
+        }
+        return MINUTE_MS;
+    }
+
+    // Close of each UTC interval, plotted at the interval start. Empty slots are omitted.
+    function resamplePoints(points, intervalMs) {
+        if (!points.length || intervalMs <= MINUTE_MS) {
+            return points;
+        }
+        const sampled = [];
+        let bucketStart = null;
+        let close = null;
+        for (let i = 0; i < points.length; i += 1) {
+            const point = points[i];
+            if (point.y == null) {
+                continue;
+            }
+            const start = Math.floor(point.x / intervalMs) * intervalMs;
+            if (bucketStart !== null && start !== bucketStart) {
+                sampled.push({ x: bucketStart, y: close.y, reading: close.reading });
+            }
+            bucketStart = start;
+            close = point;
+        }
+        if (close != null) {
+            sampled.push({ x: bucketStart, y: close.y, reading: close.reading });
+        }
+        return sampled;
+    }
+
+    function overviewSeries(points, maxPoints, intervalMs = MINUTE_MS) {
         if (!points.length) {
             return [];
         }
+        const limit = gapLimitMs(intervalMs);
         const sorted = [...points].sort((a, b) => a.x - b.x);
         const segments = [];
         let segment = [sorted[0]];
         for (let i = 1; i < sorted.length; i += 1) {
-            if (sorted[i].x - sorted[i - 1].x > GAP_MS) {
+            if (sorted[i].x - sorted[i - 1].x > limit) {
                 segments.push(segment);
                 segment = [];
             }
@@ -1314,9 +1360,20 @@
         }
 
         const spanMs = Math.max(1, viewEnd - viewStart);
-        const windowReadings = visibleReadings(readings, viewStart, viewEnd);
-        const mainPoints = withGaps(toPoints(windowReadings));
-        const overviewPoints = overviewSeries(toPoints(readings), 800);
+        const intervalMs = plotIntervalMs(spanMs);
+        const sampleStart = Math.floor(viewStart / intervalMs) * intervalMs;
+        const windowReadings = visibleReadings(readings, sampleStart, viewEnd);
+        const mainPoints = withGaps(resamplePoints(toPoints(windowReadings), intervalMs), intervalMs);
+        const overviewRaw = toPoints(readings);
+        const overviewSpan = overviewRaw.length
+            ? overviewRaw[overviewRaw.length - 1].x - overviewRaw[0].x
+            : 0;
+        const overviewInterval = plotIntervalMs(overviewSpan);
+        const overviewPoints = overviewSeries(
+            resamplePoints(overviewRaw, overviewInterval),
+            800,
+            overviewInterval,
+        );
         const y = yLimits(mainPoints);
         const bounds = dataBounds(readings);
 
@@ -1333,7 +1390,7 @@
         overviewChart.options.scales.y.max = yLimits(overviewPoints).max;
         overviewChart.update('none');
 
-        renderStats(mainPoints);
+        renderStats(toPoints(visibleReadings(readings, viewStart, viewEnd)));
         restoreHover();
     }
 
@@ -1351,7 +1408,8 @@
             hideTooltip();
             return;
         }
-        const time = Math.round(chart.scales.x.getValueForPixel(pos.x) / MINUTE_MS) * MINUTE_MS;
+        const intervalMs = plotIntervalMs(Math.max(1, viewEnd - viewStart));
+        const time = Math.round(chart.scales.x.getValueForPixel(pos.x) / intervalMs) * intervalMs;
         const points = mainPoints();
         const index = nearestIndex(points, time);
         if (index < 0) {
