@@ -85,9 +85,14 @@ php bin/migrate-history.php
 
 # v1 plaintext SQLite (../data/glucose.sqlite)
 php bin/migrate-sqlite.php ../data/glucose.sqlite
+
+# v2 JSON object array → dense dashboard CSV (import in the UI)
+php bin/upgrade-glucose-data-version.php -o mylibre.history.csv
 ```
 
-Each command decrypts the old store, groups the readings into buckets, writes `public/b/*.json.asc`, records the emitted timestamps in `data/poll-state.json`, and refreshes `current.json.asc`/`status.json.asc`. Neither modifies the source. Run whichever applies; if your v2 store already contains everything from v1 (it usually does), `migrate-history` alone is enough. Old `public/history-*.json.asc` day files are no longer read and can be deleted.
+`migrate-history` / `migrate-sqlite` decrypt the old store, group readings into buckets, write `public/b/*.json.asc`, record emitted timestamps in `data/poll-state.json`, and refresh `current.json.asc`/`status.json.asc`. Neither modifies the source. Run whichever applies; if your v2 store already contains everything from v1 (it usually does), `migrate-history` alone is enough. Old `public/history-*.json.asc` day files are no longer read and can be deleted.
+
+`upgrade-glucose-data-version.php` reads the same v2 JSON (`data/glucose.json.asc`, or a plaintext export of `{timestamp, glucoseMgDl, …}` objects) and writes the dense 1,440-slot CSV the dashboard stores. It does not write buckets. Import the CSV in the UI; the browser does not convert old JSON itself.
 
 ## Migrate from v1
 

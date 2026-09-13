@@ -93,6 +93,14 @@
     let brushState = null;
     let vaultKeys = null;
     let refreshTimer = null;
+    let historyHydrated = false;
+    let persistedCount = 0;
+    let persistedFirstT = null;
+    let persistedLastT = null;
+    let persistedLastV = null;
+    let persistedCurrentTs = null;
+    let csvPrefix = '';
+    const HISTORY_CSV_KEY = 'mylibre.h.csv';
 
     function fetchLive(path) {
         return fetch(`${path}?t=${Date.now()}`, { cache: 'no-store' });
@@ -133,24 +141,30 @@
 
     function withAge(payload) {
         const reading = payload || {};
-        if (!reading.timestamp) {
+        const time = readingTime(reading);
+        if (!Number.isFinite(time)) {
             return {
                 glucoseMgDl: null,
                 trend: null,
                 trendArrow: null,
                 timestamp: null,
+                t: null,
+                v: null,
                 ageSeconds: null,
                 stale: true,
                 staleLevel: 'missing',
             };
         }
-        const ageSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(reading.timestamp)) / 1000));
+        const ageSeconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
         const level = staleLevel(ageSeconds);
+        const glucose = reading.glucoseMgDl ?? reading.v ?? null;
         return {
-            glucoseMgDl: reading.glucoseMgDl,
+            glucoseMgDl: glucose,
             trend: reading.trend || null,
             trendArrow: reading.trendArrow || null,
-            timestamp: reading.timestamp,
+            timestamp: reading.timestamp || new Date(time).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+            t: time,
+            v: glucose,
             ageSeconds,
             stale: level !== 'fresh',
             staleLevel: level,
@@ -161,22 +175,261 @@
         return Math.floor(epochSeconds / bucketSeconds) * bucketSeconds;
     }
 
-    function persistedReadings() {
-        try {
-            const cached = JSON.parse(localStorage.getItem('mylibre.history') || '[]');
-            return Array.isArray(cached) ? cached : [];
-        } catch (error) {
-            return [];
+    function epochToMs(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) {
+            return NaN;
         }
+        return n < 1e12 ? n * 1000 : n;
     }
 
-    function persistHistory(readings) {
+    function readingTime(reading) {
+        if (reading == null) {
+            return NaN;
+        }
+        if (Array.isArray(reading)) {
+            return epochToMs(reading[0]);
+        }
+        if (Number.isFinite(reading.t)) {
+            return epochToMs(reading.t);
+        }
+        if (Number.isFinite(reading.timestamp)) {
+            return epochToMs(reading.timestamp);
+        }
+        if (reading.timestamp) {
+            return Date.parse(reading.timestamp);
+        }
+        return NaN;
+    }
+
+    function readingValue(reading) {
+        if (reading == null) {
+            return NaN;
+        }
+        if (Array.isArray(reading)) {
+            return Number(reading[1]);
+        }
+        const value = reading.v ?? reading.glucoseMgDl;
+        return Number(value);
+    }
+
+    function normalizeReading(reading) {
+        const t = readingTime(reading);
+        const v = readingValue(reading);
+        if (!Number.isFinite(t) || !Number.isFinite(v)) {
+            return null;
+        }
+        return { t: Math.floor(t / MINUTE_MS) * MINUTE_MS, v };
+    }
+
+    function ymdUtc(ms) {
+        return new Date(ms).toISOString().slice(0, 10).replace(/-/g, '');
+    }
+
+    function utcDayStartMs(ymd) {
+        return Date.UTC(
+            Number(ymd.slice(0, 4)),
+            Number(ymd.slice(4, 6)) - 1,
+            Number(ymd.slice(6, 8)),
+        );
+    }
+
+    function encodeDayLine(day, rows) {
+        const cells = new Array(1440);
+        for (let i = 0; i < 1440; i += 1) {
+            cells[i] = '';
+        }
+        const start = utcDayStartMs(day);
+        for (let i = 0; i < rows.length; i += 1) {
+            const idx = Math.floor((rows[i].t - start) / MINUTE_MS);
+            if (idx >= 0 && idx < 1440) {
+                cells[idx] = String(rows[i].v | 0);
+            }
+        }
+        return `${day},${cells.join(',')}`;
+    }
+
+    function groupByUtcDay(readings, minDay) {
+        const byDay = new Map();
+        for (let i = 0; i < readings.length; i += 1) {
+            const reading = readings[i];
+            const day = ymdUtc(reading.t);
+            if (minDay && day < minDay) {
+                continue;
+            }
+            const list = byDay.get(day);
+            if (list) {
+                list.push(reading);
+            } else {
+                byDay.set(day, [reading]);
+            }
+        }
+        return byDay;
+    }
+
+    function encodeHistoryCsv(readings) {
+        const byDay = groupByUtcDay(readings);
+        const days = [...byDay.keys()].sort();
+        let out = '';
+        for (let i = 0; i < days.length; i += 1) {
+            out += `${encodeDayLine(days[i], byDay.get(days[i]))}\n`;
+        }
+        return out;
+    }
+
+    function decodeCsvLine(line) {
+        const readings = [];
+        if (!line || line[0] === '#') {
+            return readings;
+        }
+        const parts = line.split(/[,\t]/);
+        if (parts.length < 2 || !/^\d{8}$/.test(parts[0])) {
+            return readings;
+        }
+        const start = utcDayStartMs(parts[0]);
+        const limit = Math.min(1440, parts.length - 1);
+        for (let i = 0; i < limit; i += 1) {
+            const raw = parts[i + 1];
+            if (raw === '') {
+                continue;
+            }
+            const v = Number(raw);
+            if (Number.isFinite(v) && v < 1e6) {
+                readings.push({ t: start + i * MINUTE_MS, v });
+            }
+        }
+        return readings;
+    }
+
+    function decodeHistoryCsv(text) {
+        const readings = [];
+        if (!text) {
+            return readings;
+        }
+        const lines = text.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i += 1) {
+            const part = decodeCsvLine(lines[i]);
+            for (let j = 0; j < part.length; j += 1) {
+                readings.push(part[j]);
+            }
+        }
+        readings.sort((a, b) => a.t - b.t);
+        return readings;
+    }
+
+    function rememberCsvParts(encoded) {
+        const lines = [];
+        const raw = String(encoded || '').split('\n');
+        for (let i = 0; i < raw.length; i += 1) {
+            if (raw[i]) {
+                lines.push(raw[i]);
+            }
+        }
+        if (lines.length <= 1) {
+            csvPrefix = '';
+            return;
+        }
+        csvPrefix = `${lines.slice(0, -1).join('\n')}\n`;
+    }
+
+    function rememberPersisted(readings) {
+        persistedCount = readings.length;
+        persistedFirstT = readings.length ? readings[0].t : null;
+        persistedLastT = readings.length ? readings[readings.length - 1].t : null;
+        persistedLastV = readings.length ? readings[readings.length - 1].v : null;
+    }
+
+    function historyUnchanged(readings) {
+        if (readings.length !== persistedCount) {
+            return false;
+        }
+        if (!readings.length) {
+            return true;
+        }
+        return readings[0].t === persistedFirstT
+            && readings[readings.length - 1].t === persistedLastT
+            && readings[readings.length - 1].v === persistedLastV;
+    }
+
+    function storedHistory() {
+        if (!historyHydrated) {
+            allReadings = loadPersistedHistory();
+            historyHydrated = true;
+        }
+        return allReadings;
+    }
+
+    function loadPersistedHistory() {
+        const csv = localStorage.getItem(HISTORY_CSV_KEY);
+        if (!csv) {
+            rememberPersisted([]);
+            csvPrefix = '';
+            return [];
+        }
+        const readings = decodeHistoryCsv(csv);
+        rememberCsvParts(csv);
+        rememberPersisted(readings);
+        return readings;
+    }
+
+    function persistHistory(readings, force = false) {
+        if (!force && historyUnchanged(readings)) {
+            return true;
+        }
+
+        const appendOnly = !force
+            && persistedCount > 0
+            && readings.length >= persistedCount
+            && readings[0].t === persistedFirstT
+            && readings[persistedCount - 1]
+            && readings[persistedCount - 1].t === persistedLastT;
+
         try {
-            localStorage.setItem('mylibre.history', JSON.stringify(readings));
+            let encoded;
+            if (appendOnly) {
+                const minDay = ymdUtc(persistedLastT);
+                const byDay = groupByUtcDay(readings, minDay);
+                const days = [...byDay.keys()].sort();
+                const lines = [];
+                for (let i = 0; i < days.length; i += 1) {
+                    lines.push(encodeDayLine(days[i], byDay.get(days[i])));
+                }
+                encoded = csvPrefix + (lines.length ? `${lines.join('\n')}\n` : '');
+                if (lines.length > 1) {
+                    csvPrefix += `${lines.slice(0, -1).join('\n')}\n`;
+                }
+            } else {
+                encoded = encodeHistoryCsv(readings);
+                rememberCsvParts(encoded);
+            }
+            if (localStorage.getItem(HISTORY_CSV_KEY) !== encoded) {
+                localStorage.setItem(HISTORY_CSV_KEY, encoded);
+            }
+            rememberPersisted(readings);
             return true;
         } catch (error) {
             console.warn('Unable to cache glucose history locally', error);
             return false;
+        }
+    }
+
+    function persistCurrent(current) {
+        if (!current || !current.timestamp) {
+            return;
+        }
+        if (current.timestamp === persistedCurrentTs) {
+            return;
+        }
+        try {
+            localStorage.setItem('mylibre.current', JSON.stringify({
+                glucoseMgDl: current.glucoseMgDl ?? null,
+                trend: current.trend || null,
+                trendArrow: current.trendArrow || null,
+                timestamp: current.timestamp,
+            }));
+            persistedCurrentTs = current.timestamp;
+        } catch (error) {
+            // Quota: history is the durable copy; current cache is optional.
         }
     }
 
@@ -199,69 +452,48 @@
     }
 
     function parseHistoryExport(text) {
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch (error) {
-            throw new Error('That file is not valid JSON.');
+        const trimmed = String(text || '').trim();
+        if (!trimmed) {
+            throw new Error('That file is empty.');
         }
-        const list = Array.isArray(data)
-            ? data
-            : (data && Array.isArray(data.readings) ? data.readings : null);
-        if (!list) {
-            throw new Error('That file is not a glucose history export.');
+        const rows = decodeHistoryCsv(trimmed);
+        if (!rows.length) {
+            throw new Error('That file is not a dense glucose CSV (one UTC day per line, 1440 minute slots).');
         }
-        const readings = list.filter((item) => (
-            item
-            && item.timestamp
-            && Number.isFinite(Date.parse(item.timestamp))
-        ));
-        if (!readings.length) {
-            throw new Error('No readings found in that file.');
-        }
-        return readings;
+        return rows;
     }
 
     function historyForExport() {
-        return allReadings.length ? allReadings : persistedReadings();
+        return allReadings.length ? allReadings : storedHistory();
     }
 
     function exportHistory() {
         const readings = historyForExport();
-        persistHistory(readings);
         downloadText(
-            'mylibre.history.json',
-            JSON.stringify(readings),
-            'application/json',
+            'mylibre.history.csv',
+            encodeHistoryCsv(readings),
+            'text/csv',
         );
         showIoStatus(`Exported ${readings.length} reading${readings.length === 1 ? '' : 's'}.`);
     }
 
     async function importHistoryFile(file) {
         const imported = parseHistoryExport(await readFileAsText(file));
-        const before = new Set(
-            [...persistedReadings(), ...allReadings]
-                .map((reading) => reading && reading.timestamp)
-                .filter(Boolean),
-        ).size;
-        const readings = mergedReadings([...allReadings, ...imported]);
-        if (!persistHistory(readings)) {
+        const before = storedHistory().length;
+        const readings = mergedReadings(imported);
+        if (!persistHistory(readings, true)) {
             throw new Error('Browser storage is full; history was not saved.');
         }
         renderChart(readings);
         const latest = readings[readings.length - 1];
         if (latest) {
-            const latestTs = Date.parse(latest.timestamp);
-            const knownTs = lastKnown && lastKnown.timestamp
-                ? Date.parse(lastKnown.timestamp)
-                : -Infinity;
-            if (Number.isFinite(latestTs) && latestTs >= knownTs) {
+            const knownTs = lastKnown && Number.isFinite(lastKnown.t) ? lastKnown.t : -Infinity;
+            if (latest.t >= knownTs) {
                 renderCurrent(latest);
-                try {
-                    localStorage.setItem('mylibre.current', JSON.stringify(latest));
-                } catch (error) {
-                    // Quota: history already persisted; current cache is optional.
-                }
+                persistCurrent({
+                    glucoseMgDl: latest.v,
+                    timestamp: new Date(latest.t).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+                });
             }
         }
         const added = Math.max(0, readings.length - before);
@@ -269,35 +501,53 @@
     }
 
     function mergedReadings(extra) {
-        const byTimestamp = new Map();
-        for (const reading of persistedReadings()) {
-            if (reading && reading.timestamp) {
-                byTimestamp.set(reading.timestamp, reading);
+        const base = storedHistory();
+        if (!extra || extra.length === 0) {
+            return base;
+        }
+        const byTime = new Map();
+        for (let i = 0; i < base.length; i += 1) {
+            byTime.set(base[i].t, base[i]);
+        }
+        let changed = false;
+        for (let i = 0; i < extra.length; i += 1) {
+            const reading = normalizeReading(extra[i]);
+            if (!reading) {
+                continue;
+            }
+            const prev = byTime.get(reading.t);
+            if (!prev || prev.v !== reading.v) {
+                byTime.set(reading.t, reading);
+                changed = true;
             }
         }
-        for (const reading of extra) {
-            if (reading && reading.timestamp) {
-                byTimestamp.set(reading.timestamp, reading);
-            }
+        if (!changed) {
+            return base;
         }
-        const readings = [...byTimestamp.values()];
-        readings.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+        const readings = [...byTime.values()];
+        readings.sort((a, b) => a.t - b.t);
         return readings;
     }
 
     // Catch-up is written into sensor-time buckets that may already be 404s.
     // Detect the hole with one bucket (5 min), not GAP_MS (20 min chart gap).
     function rewindForRestore(current) {
-        const currentTs = current && current.timestamp ? Date.parse(current.timestamp) : NaN;
+        const currentTs = readingTime(current);
         if (!Number.isFinite(currentTs)) {
             return;
         }
         lastCurrentTs = currentTs;
 
-        const times = persistedReadings()
-            .map((reading) => Date.parse(reading.timestamp))
-            .filter((time) => Number.isFinite(time) && time !== currentTs)
-            .sort((a, b) => a - b);
+        const history = storedHistory();
+        if (!history.length) {
+            return;
+        }
+        const times = [];
+        for (let i = 0; i < history.length; i += 1) {
+            if (history[i].t !== currentTs) {
+                times.push(history[i].t);
+            }
+        }
         if (!times.length) {
             return;
         }
@@ -329,17 +579,17 @@
             ? Math.floor(Date.parse(status.earliestReadingAt) / 1000)
             : null;
         if (earliest === null) {
-            return mergedReadings([]);
+            return [];
         }
 
         const firstBucket = bucketOf(earliest);
         const openBucket = bucketOf(Math.floor(Date.now() / 1000));
         const lastFinal = openBucket - bucketSeconds;
         if (openBucket < firstBucket) {
-            return mergedReadings([]);
+            return [];
         }
 
-        if (persistedReadings().length === 0) {
+        if (storedHistory().length === 0) {
             consumedBucket = null;
         }
         const floorBucket = lastFinal - MAX_BACKFILL_BUCKETS * bucketSeconds;
@@ -405,11 +655,17 @@
             }
             const advance = Math.min(contiguous, lastFinal - bucketSeconds);
             consumedBucket = consumedBucket === null ? advance : Math.max(consumedBucket, advance);
-            localStorage.setItem('mylibre.bucket', String(consumedBucket));
-            localStorage.setItem('mylibre.bucketSeconds', String(bucketSeconds));
+            const prevBucket = localStorage.getItem('mylibre.bucket');
+            const prevSeconds = localStorage.getItem('mylibre.bucketSeconds');
+            if (prevBucket !== String(consumedBucket)) {
+                localStorage.setItem('mylibre.bucket', String(consumedBucket));
+            }
+            if (prevSeconds !== String(bucketSeconds)) {
+                localStorage.setItem('mylibre.bucketSeconds', String(bucketSeconds));
+            }
         }
 
-        return mergedReadings(fetched);
+        return fetched;
     }
 
     function formatAge(seconds) {
@@ -602,11 +858,14 @@
     }
 
     function toPoints(readings) {
-        return readings.map((point) => ({
-            x: Date.parse(point.timestamp),
-            y: point.glucoseMgDl,
-            reading: point,
-        })).filter((point) => Number.isFinite(point.x) && point.y != null);
+        const points = [];
+        for (let i = 0; i < readings.length; i += 1) {
+            const point = readings[i];
+            if (Number.isFinite(point.t) && point.v != null) {
+                points.push({ x: point.t, y: point.v, reading: point });
+            }
+        }
+        return points;
     }
 
     function withGaps(points) {
@@ -626,10 +885,14 @@
     }
 
     function visibleReadings(readings, start, end) {
-        return readings.filter((point) => {
-            const time = Date.parse(point.timestamp);
-            return time >= start && time <= end;
-        });
+        const visible = [];
+        for (let i = 0; i < readings.length; i += 1) {
+            const time = readings[i].t;
+            if (time >= start && time <= end) {
+                visible.push(readings[i]);
+            }
+        }
+        return visible;
     }
 
     function nearestIndex(points, time) {
@@ -665,8 +928,8 @@
             return { start: now - 3 * 3600 * 1000, end: now };
         }
         return {
-            start: Date.parse(readings[0].timestamp),
-            end: Date.parse(readings[readings.length - 1].timestamp),
+            start: readings[0].t,
+            end: readings[readings.length - 1].t,
         };
     }
 
@@ -835,13 +1098,11 @@
 
     function showTooltip(point, pixelX, pixelY) {
         const date = new Date(point.x);
-        const reading = point.reading || {};
-        const trend = [reading.trendArrow, reading.trend].filter(Boolean).join(' ');
         const color = colorForGlucose(point.y);
         tooltipEl.innerHTML = `
             <p class="t-time">${formatDateTime(date)}</p>
             <p class="t-value" style="color:${color}">${point.y}</p>
-            <p class="t-trend">${trend ? `${trend} · mg/dL` : 'mg/dL'}</p>
+            <p class="t-trend">mg/dL</p>
         `;
         tooltipEl.style.borderColor = color;
         tooltipEl.classList.remove('hidden');
@@ -1282,18 +1543,21 @@
             snapshotLoginRequired = !!status.loginRequired;
             rewindForRestore(current);
             const readings = mergedReadings([...(await loadHistory(status)), current]);
+            const historyChanged = readings !== allReadings;
             renderCurrent(current);
-            renderChart(readings);
+            if (historyChanged || !chart) {
+                renderChart(readings);
+            }
             if (statusRes.ok) {
                 sourceEl.textContent = `encrypted snapshot · ${status.provider || 'unknown'}`;
             }
-            localStorage.setItem('mylibre.current', JSON.stringify(current));
+            persistCurrent(current);
             persistHistory(readings);
         } catch (error) {
             console.error(error);
             offline = true;
             const cachedCurrent = lastKnown || JSON.parse(localStorage.getItem('mylibre.current') || 'null');
-            const cachedHistory = JSON.parse(localStorage.getItem('mylibre.history') || '[]');
+            const cachedHistory = storedHistory();
             if (cachedCurrent) {
                 renderCurrent(cachedCurrent);
             } else {

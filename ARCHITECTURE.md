@@ -168,7 +168,7 @@ LibreLinkUp bearer token, regional `baseUri`, hashed-account source UUID, expiry
 
 | Path | Status |
 | --- | --- |
-| `data/glucose.json.asc` | Previous v2 encrypted history store. Read only by `bin/migrate-history.php`. |
+| `data/glucose.json.asc` | Previous v2 encrypted history store. Read by `bin/migrate-history.php` (buckets) and `bin/upgrade-glucose-data-version.php` (dense dashboard CSV). |
 | `data/glucose.sqlite` | v1 store. Read only by `bin/migrate-sqlite.php`. |
 | `public/history-YYYYMMDD.json.asc` | Previous day-file snapshots. The poller no longer writes or reads them. |
 | `SQLITE_PATH` / `DATA_PATH` | Config still loads them; `GlucosePoller` does not. |

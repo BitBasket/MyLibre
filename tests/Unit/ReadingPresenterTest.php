@@ -62,4 +62,20 @@ final class ReadingPresenterTest extends TestCase
         $this->assertNull($empty['glucoseMgDl']);
         $this->assertNull($empty['timestamp']);
     }
+
+    public function testHistoryOmitsTrendFields(): void
+    {
+        $reading = new GlucoseReadingDTO([
+            'timestamp' => '2026-09-01T19:31:00Z',
+            'glucoseMgDl' => 174,
+            'trend' => 'falling',
+            'trendArrow' => '↘',
+        ]);
+
+        $payload = ReadingPresenter::history([$reading])[0];
+        $this->assertSame(174, $payload['glucoseMgDl']);
+        $this->assertSame('2026-09-01T19:31:00Z', $payload['timestamp']);
+        $this->assertArrayNotHasKey('trend', $payload);
+        $this->assertArrayNotHasKey('trendArrow', $payload);
+    }
 }

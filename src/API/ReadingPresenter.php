@@ -77,8 +77,6 @@ final class ReadingPresenter
         return array_map(static function (GlucoseReadingDTO $reading): array {
             return [
                 'glucoseMgDl' => $reading->glucoseMgDl,
-                'trend' => $reading->trend,
-                'trendArrow' => $reading->trendArrow,
                 'timestamp' => self::iso($reading->timestamp),
             ];
         }, $readings);
