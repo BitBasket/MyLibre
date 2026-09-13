@@ -99,9 +99,14 @@ body:not(.locked) .unlock-gate {
     padding: 1.4rem 1.3rem 1.5rem;
 }
 
-.unlock-card h1 {
+.unlock-card h1,
+.unlock-card h2 {
     margin: 0 0 0.4rem;
     font-size: 1.25rem;
+}
+
+.unlock-card h2 {
+    font-size: 1.1rem;
 }
 
 .unlock-card label {
@@ -300,6 +305,35 @@ body:not(.locked) .unlock-gate {
 
 .hidden {
     display: none;
+}
+
+.import-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(4, 12, 16, 0.72);
+}
+
+.import-modal.hidden {
+    display: none;
+}
+
+.import-modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.import-modal .import-modal-actions button,
+.import-modal .import-modal-actions button.secondary,
+.import-modal .import-modal-actions button[type="submit"] {
+    flex: 1;
+    margin-top: 0;
+    width: auto;
 }
 
 .current {

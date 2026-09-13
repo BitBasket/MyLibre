@@ -9,7 +9,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
-    <link rel="stylesheet" href="/app.css?v=20">
+    <link rel="stylesheet" href="/app.css?v=21">
 </head>
 <body class="locked">
     <section id="unlock-gate" class="unlock-gate" aria-labelledby="unlock-title">
@@ -74,7 +74,7 @@
             <div class="top-actions">
                 <button type="button" id="export-btn" class="lock-btn">Export</button>
                 <button type="button" id="import-btn" class="lock-btn">Import</button>
-                <input id="import-file" type="file" accept=".csv,text/csv,text/plain" hidden>
+                <input id="import-file" type="file" accept=".csv,.asc,.gpg,.pgp,text/csv,text/plain,application/pgp-encrypted" hidden>
                 <button type="button" id="lock-btn" class="lock-btn">Lock</button>
             </div>
         </header>
@@ -129,9 +129,22 @@
             <p class="chart-hint">Hover a reading · scroll to zoom · drag to pan · drag the window to scrub all history</p>
         </section>
     </main>
+    <div id="import-passphrase-modal" class="import-modal hidden" role="dialog" aria-modal="true" aria-labelledby="import-passphrase-title">
+        <form id="import-passphrase-form" class="unlock-card">
+            <h2 id="import-passphrase-title">Password-protected CSV</h2>
+            <p class="muted">This file is OpenPGP-encrypted with a symmetric passphrase.</p>
+            <label for="import-passphrase">Passphrase</label>
+            <input id="import-passphrase" type="password" autocomplete="off" required autocapitalize="off" autocorrect="off" spellcheck="false">
+            <p id="import-passphrase-error" class="unlock-error hidden" role="alert"></p>
+            <div class="import-modal-actions">
+                <button type="button" id="import-passphrase-cancel" class="secondary">Cancel</button>
+                <button type="submit" id="import-passphrase-submit">Decrypt</button>
+            </div>
+        </form>
+    </div>
     <script src="/vendor/chart.umd.min.js"></script>
     <script src="/vendor/openpgp.min.js"></script>
-    <script src="/pgp.js?v=17"></script>
-    <script src="/app.js?v=29"></script>
+    <script src="/pgp.js?v=18"></script>
+    <script src="/app.js?v=30"></script>
 </body>
 </html>

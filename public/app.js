@@ -46,6 +46,12 @@
     const exportBtn = document.getElementById('export-btn');
     const importBtn = document.getElementById('import-btn');
     const importFile = document.getElementById('import-file');
+    const importPassphraseModal = document.getElementById('import-passphrase-modal');
+    const importPassphraseForm = document.getElementById('import-passphrase-form');
+    const importPassphraseEl = document.getElementById('import-passphrase');
+    const importPassphraseError = document.getElementById('import-passphrase-error');
+    const importPassphraseCancel = document.getElementById('import-passphrase-cancel');
+    const importPassphraseSubmit = document.getElementById('import-passphrase-submit');
     const ioStatusEl = document.getElementById('io-status');
     const keyFields = document.getElementById('key-fields');
     const publicKeyEl = document.getElementById('public-key');
@@ -480,8 +486,114 @@
         showIoStatus(`Exported ${readings.length} reading${readings.length === 1 ? '' : 's'}.`);
     }
 
+    function cancelledImport() {
+        const error = new Error('Import cancelled.');
+        error.name = 'ImportCancelled';
+        return error;
+    }
+
+    function decryptSymmetricWithPrompt(bytes, text) {
+        return new Promise((resolve, reject) => {
+            function cleanup() {
+                importPassphraseForm.removeEventListener('submit', onSubmit);
+                importPassphraseCancel.removeEventListener('click', onCancel);
+                document.removeEventListener('keydown', onKey);
+                importPassphraseModal.classList.add('hidden');
+                importPassphraseEl.value = '';
+                importPassphraseError.textContent = '';
+                importPassphraseError.classList.add('hidden');
+                importPassphraseSubmit.disabled = false;
+            }
+
+            function onCancel() {
+                cleanup();
+                reject(cancelledImport());
+            }
+
+            function onKey(event) {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    onCancel();
+                }
+            }
+
+            async function onSubmit(event) {
+                event.preventDefault();
+                const password = importPassphraseEl.value;
+                if (!password) {
+                    return;
+                }
+                importPassphraseSubmit.disabled = true;
+                importPassphraseError.classList.add('hidden');
+                try {
+                    const message = await PgpVault.readPgpMessage(bytes, text);
+                    const data = await PgpVault.decryptPgpPayload(message, { passwords: [password] });
+                    cleanup();
+                    resolve(data);
+                } catch (error) {
+                    importPassphraseSubmit.disabled = false;
+                    importPassphraseError.textContent = 'That passphrase does not decrypt this file.';
+                    importPassphraseError.classList.remove('hidden');
+                    importPassphraseEl.focus();
+                    importPassphraseEl.select();
+                }
+            }
+
+            importPassphraseForm.addEventListener('submit', onSubmit);
+            importPassphraseCancel.addEventListener('click', onCancel);
+            document.addEventListener('keydown', onKey);
+            importPassphraseModal.classList.remove('hidden');
+            importPassphraseEl.value = '';
+            importPassphraseError.classList.add('hidden');
+            importPassphraseEl.focus();
+        });
+    }
+
+    async function csvTextFromImportFile(file) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (!bytes.length) {
+            throw new Error('That file is empty.');
+        }
+        const text = PgpVault.decodeUtf8(bytes);
+        if (!PgpVault.looksLikePgpMessage(bytes, text)) {
+            if (text === null) {
+                throw new Error('That file is not a glucose CSV or an OpenPGP-encrypted CSV.');
+            }
+            return text;
+        }
+
+        let message;
+        try {
+            message = await PgpVault.readPgpMessage(bytes, text);
+        } catch (error) {
+            throw new Error('That file looks like OpenPGP data but could not be read.');
+        }
+
+        const kind = PgpVault.pgpEncryptionKind(message);
+        if (kind === 'unknown') {
+            throw new Error('That OpenPGP message is not encrypted with a password or a public key.');
+        }
+
+        if (kind === 'public' || kind === 'both') {
+            if (!vaultKeys || !vaultKeys.privateKey) {
+                throw new Error('This CSV is encrypted to a public key. Unlock with your keypair first.');
+            }
+            try {
+                return await PgpVault.decryptPgpPayload(message, {
+                    decryptionKeys: vaultKeys.privateKey,
+                });
+            } catch (error) {
+                if (kind === 'public') {
+                    throw new Error('This CSV is encrypted to a different OpenPGP key than the one unlocked here.');
+                }
+            }
+        }
+
+        return decryptSymmetricWithPrompt(bytes, text);
+    }
+
     async function importHistoryFile(file) {
-        const imported = parseHistoryExport(await readFileAsText(file));
+        const imported = parseHistoryExport(await csvTextFromImportFile(file));
         const before = storedHistory().length;
         const readings = mergedReadings(imported);
         if (!persistHistory(readings, true)) {
@@ -1942,6 +2054,10 @@
         try {
             await importHistoryFile(file);
         } catch (error) {
+            if (error && error.name === 'ImportCancelled') {
+                showIoStatus('Import cancelled.');
+                return;
+            }
             showIoStatus(error.message || String(error), true);
         }
     });

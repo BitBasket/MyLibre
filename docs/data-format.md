@@ -85,7 +85,13 @@ Export downloads the same CSV as §2. That file is the portable backup.
 
 ## 4. Import
 
-Import merges by UTC minute (later value wins) and rewrites `mylibre.h.csv`. The dashboard accepts **only** the dense CSV in §2.
+Import merges by UTC minute (later value wins) and rewrites `mylibre.h.csv`. The dashboard accepts the dense CSV in §2 as:
+
+- plaintext (`.csv`)
+- OpenPGP **symmetric** ciphertext (`gpg --symmetric`, password) — armored `.asc` or binary `.gpg`
+- OpenPGP **public-key** ciphertext (`gpg --encrypt --recipient`, encrypted to the unlocked keypair)
+
+The browser inspects the message packets (SKESK vs PKESK) to choose password decrypt or the unlocked private key. It does not convert JSON, sparse CSV, or the old `mylibre.history` localStorage key.
 
 Convert the v2 JSON object store (the payload `bin/migrate-history.php` reads from `data/glucose.json.asc`, or a plaintext export of the same `{timestamp, glucoseMgDl, …}` objects) with:
 
@@ -94,7 +100,7 @@ php bin/upgrade-glucose-data-version.php -o mylibre.history.csv
 php bin/upgrade-glucose-data-version.php path/to/history.json -o mylibre.history.csv
 ```
 
-Then use the dashboard Import button. The browser does not convert JSON, sparse CSV, or the old `mylibre.history` localStorage key.
+Then use the dashboard Import button. The file may be plaintext or OpenPGP-encrypted as above.
 
 ---
 

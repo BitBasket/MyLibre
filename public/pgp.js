@@ -121,5 +121,89 @@
         return JSON.parse(result.data);
     }
 
-    window.PgpVault = { saveKeys, loadKeys, clearKeys, unlock, decryptJson, generateKeypair };
+    const PGP_MESSAGE_ARMOR = '-----BEGIN PGP MESSAGE-----';
+
+    function decodeUtf8(bytes) {
+        try {
+            return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function looksLikeArmoredPgpMessage(text) {
+        return typeof text === 'string' && text.includes(PGP_MESSAGE_ARMOR);
+    }
+
+    function looksLikeDenseCsv(text) {
+        if (!text) {
+            return false;
+        }
+        const lines = String(text).split(/\r?\n/);
+        for (let i = 0; i < lines.length; i += 1) {
+            const line = lines[i].trim();
+            if (!line || line[0] === '#') {
+                continue;
+            }
+            return /^\d{8}[,\t]/.test(line);
+        }
+        return false;
+    }
+
+    function looksLikePgpMessage(bytes, text) {
+        if (looksLikeArmoredPgpMessage(text)) {
+            return true;
+        }
+        if (looksLikeDenseCsv(text)) {
+            return false;
+        }
+        return !!(bytes && bytes.length >= 2 && (bytes[0] & 0x80) !== 0);
+    }
+
+    async function readPgpMessage(bytes, text) {
+        if (looksLikeArmoredPgpMessage(text)) {
+            return openpgp.readMessage({ armoredMessage: text });
+        }
+        return openpgp.readMessage({ binaryMessage: bytes });
+    }
+
+    function pgpEncryptionKind(message) {
+        const tags = openpgp.enums.packet;
+        const packets = message.packets;
+        const hasPublic = packets.filterByTag(tags.publicKeyEncryptedSessionKey).length > 0;
+        const hasSymmetric = packets.filterByTag(tags.symEncryptedSessionKey).length > 0;
+        if (hasPublic && hasSymmetric) {
+            return 'both';
+        }
+        if (hasPublic) {
+            return 'public';
+        }
+        if (hasSymmetric) {
+            return 'symmetric';
+        }
+        return 'unknown';
+    }
+
+    async function decryptPgpPayload(message, options) {
+        const result = await openpgp.decrypt({
+            message,
+            decryptionKeys: options && options.decryptionKeys,
+            passwords: options && options.passwords,
+        });
+        return result.data;
+    }
+
+    window.PgpVault = {
+        saveKeys,
+        loadKeys,
+        clearKeys,
+        unlock,
+        decryptJson,
+        generateKeypair,
+        decodeUtf8,
+        looksLikePgpMessage,
+        readPgpMessage,
+        pgpEncryptionKind,
+        decryptPgpPayload,
+    };
 })();
