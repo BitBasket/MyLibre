@@ -1,0 +1,65 @@
+# MyLibre on a DigitalOcean Droplet
+#
+# 1. Create a Docker Droplet (1 GB is enough). Open TCP 22, 80, and 443.
+# 2. Clone this repo onto the droplet, then:
+#      cp .env.example .env   # fill LibreLinkUp + PGP_PASSPHRASE
+#      # Optional: copy existing data/keys/*.asc and data/*.asc onto the host
+# 3. Point an A/AAAA record at the droplet and set MYLIBRE_SITE to that hostname
+#    in .env (leave MYLIBRE_SITE=:80 to serve HTTP on the droplet IP).
+# 4. docker compose up -d
+#
+# The poller writes encrypted snapshots into ./public. Caddy serves that
+# directory. ./data holds the encrypted store, session, and PGP keys.
+
+name: mylibre
+
+services:
+  poller:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      TZ: UTC
+    volumes:
+      - ./data:/app/data
+      - ./public:/app/public
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    stop_grace_period: 10s
+
+  web:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - poller
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      MYLIBRE_SITE: ${MYLIBRE_SITE:-:80}
+    volumes:
+      - ./public:/srv:ro
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

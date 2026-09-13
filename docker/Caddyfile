@@ -1,0 +1,24 @@
+{
+	admin off
+}
+
+{$MYLIBRE_SITE::80} {
+	root * /srv
+	encode gzip zstd
+	file_server
+
+	@snapshots path_regexp snapshots ^/(current|status|history-[0-9]{8})\.json(\.asc)?$
+	header @snapshots Cache-Control "no-store"
+	header @snapshots Content-Type "text/plain; charset=utf-8"
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		X-Frame-Options DENY
+		-Server
+	}
+
+	log {
+		output stdout
+	}
+}
