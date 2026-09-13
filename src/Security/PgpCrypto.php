@@ -20,6 +20,19 @@ final class PgpCrypto
         return $this->privateKeyPath !== '';
     }
 
+    public function publicFingerprint(): string
+    {
+        $home = $this->home();
+        try {
+            $this->writeCompatConfig($home);
+            $this->import($home, $this->publicKeyPath);
+
+            return $this->fingerprint($home, false);
+        } finally {
+            $this->cleanup($home);
+        }
+    }
+
     /**
      * Encrypts to the configured public key. When a private key is present the
      * payload is also signed; in public-key-only mode the ciphertext is unsigned

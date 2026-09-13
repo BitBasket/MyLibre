@@ -10,4 +10,4 @@ if [ ! -r "${PGP_PUBLIC_KEY_PATH:-data/keys/public.asc}" ] || [ ! -r "${PGP_PRIV
     php bin/init-pgp.php
 fi
 
-exec php bin/poll-glucose.php "$@"
+exec php bin/serve.php "$@"

@@ -64,14 +64,17 @@ final class App
     }
 
     /**
-     * The key the outbound dashboard snapshots are encrypted to. When a
-     * user-supplied public key is configured (PGP_USER_PUBLIC_KEY_PATH) it is
-     * used on its own, so the browser-generated private key never reaches the
-     * server. Otherwise the local keypair is used, as before.
+     * The key the outbound dashboard snapshots are encrypted to. When
+     * `data/keys/user-public.asc` (or PGP_USER_PUBLIC_KEY_PATH) is readable it
+     * is used on its own, so the browser-generated private key never reaches
+     * the server. Otherwise the local keypair is used, as before.
      */
     public function recipientCrypto(): PgpCrypto
     {
-        if ($this->config->userPublicKeyPath === '') {
+        $path = $this->config->userPublicKeyPath;
+        if ($path === '' || !is_readable($path)) {
+            $this->recipient = null;
+
             return $this->crypto();
         }
 
@@ -79,13 +82,7 @@ final class App
             return $this->recipient;
         }
 
-        if (!is_readable($this->config->userPublicKeyPath)) {
-            throw new InvalidArgumentException(
-                'PGP_USER_PUBLIC_KEY_PATH points to a missing or unreadable file.'
-            );
-        }
-
-        $crypto = new PgpCrypto($this->config->userPublicKeyPath);
+        $crypto = new PgpCrypto($path);
         $crypto->validate();
 
         return $this->recipient = $crypto;

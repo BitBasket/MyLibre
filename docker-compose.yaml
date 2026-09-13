@@ -8,8 +8,9 @@
 #    in .env (leave MYLIBRE_SITE=:80 to serve HTTP on the droplet IP).
 # 4. docker compose up -d
 #
-# The poller writes encrypted snapshots into ./public. Caddy serves that
-# directory. ./data holds the encrypted store, session, and PGP keys.
+# The poller container also runs the PHP API (loopback AUTH_LISTEN plus
+# /api/keys enrollment). Caddy serves ./public and reverse-proxies /api/*
+# to that API. ./data holds the encrypted store, session, and PGP keys.
 
 name: mylibre
 
@@ -22,6 +23,10 @@ services:
     environment:
       APP_ENV: production
       TZ: UTC
+      HOST: 0.0.0.0
+      PORT: "8765"
+    expose:
+      - "8765"
     volumes:
       - ./data:/app/data
       - ./public:/app/public

@@ -43,7 +43,7 @@
             </div>
 
             <div id="new-key-panel" class="hidden">
-                <p class="muted">Your keypair is created in this browser and never sent to the server. Download both files, keep the private key safe, and save the passphrase in your password manager.</p>
+                <p class="muted">Your keypair is created in this browser. Download both files, keep the private key safe, and save the passphrase in your password manager. Only the <strong>public</strong> key is sent to this host so new readings can be encrypted to you. The private key never leaves this device.</p>
                 <form id="new-key-form" method="post" action="/" autocomplete="on" data-form-type="signup">
                     <label for="new-username">Username</label>
                     <input id="new-username" name="username" type="text" autocomplete="username" value="mylibre" autocapitalize="off" spellcheck="false">
@@ -145,6 +145,6 @@
     <script src="/vendor/chart.umd.min.js"></script>
     <script src="/vendor/openpgp.min.js"></script>
     <script src="/pgp.js?v=18"></script>
-    <script src="/app.js?v=30"></script>
+    <script src="/app.js?v=31"></script>
 </body>
 </html>

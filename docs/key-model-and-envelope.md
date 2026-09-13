@@ -168,7 +168,7 @@ The dashboard is pure static HTML + JS + CSS with **no request-time backend**, s
 
 1. Sign worker output with a separate MyLibre key, or rely purely on the encryption's integrity tag?
 2. Batch composition: whole overlapping graph per poll, or only newly observed readings?
-3. **Enrollment transport:** how does the worker receive the user's public key, and how is that key's binding to the user verified — so a compromised relay cannot enroll a key of its own in place of the user's?
+3. **Enrollment transport (self-host, done):** `POST /api/keys` over HTTPS (or loopback) writes `data/keys/user-public.asc`. First fingerprint wins; a different key is a 409. The private key is refused. A managed relay still needs a stronger binding than "whoever hits this URL first."
 4. Which expiry mechanism per provider: object-storage lifecycle rule vs. deletion worker?
 
 ---
@@ -183,3 +183,4 @@ The dashboard is pure static HTML + JS + CSS with **no request-time backend**, s
 - **2026-09-12 — Static, backend-free sync: predetermined bucket URLs.** History is immutable `b/<bucket>.json.enc` batches whose names the browser derives from the clock; `status.json.asc` carries only `bucketSeconds`/`earliestReadingAt`/`latestReadingAt`. No manifest, no acknowledgement endpoint, no request-time backend. The one cost is that a cold-start backfill is capped (§3).
 - **2026-09-12 — The poller is a write-only relay.** Its only persistent state is `PollState` — a bounded set of emitted timestamps plus the earliest reading time. It never reads glucose values back and needs no private key for history.
 - **2026-09-12 — Follow-up (not blocking): per-region display-unit defaults.** A verified geography→unit table (mg/dL vs mmol/L) is needed only for the future i18n default. Tracked separately; do **not** bake a geography table into the canonical format.
+- **2026-09-13 — Self-host enrollment: POST /api/keys.** The dashboard uploads the public key only; the poller encrypts outbound snapshots to `data/keys/user-public.asc` once that file exists. The private key is never stored on the host. HTTPS (or loopback) is required so a network attacker cannot enroll a substitute key.

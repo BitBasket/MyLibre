@@ -5,7 +5,18 @@
 {$MYLIBRE_SITE::80} {
 	root * /srv
 	encode gzip zstd
-	file_server
+
+	handle /api/* {
+		reverse_proxy poller:8765 {
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-For {remote_host}
+			header_up Host {host}
+		}
+	}
+
+	handle {
+		file_server
+	}
 
 	@snapshots path_regexp snapshots ^/(current|status|history-[0-9]{8})\.json(\.asc)?$
 	header @snapshots Cache-Control "no-store"

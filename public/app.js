@@ -1784,6 +1784,42 @@
         privateKeyFile.value = '';
     }
 
+    async function enrollPublicKey(publicArmored) {
+        try {
+            const response = await fetch('/api/keys', {
+                method: 'POST',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ publicKey: publicArmored }),
+            });
+            if (response.status === 404) {
+                return {
+                    ok: false,
+                    error: 'This host has no key enrollment API. Copy public.asc to data/keys/user-public.asc.',
+                };
+            }
+            const payload = await response.json().catch(() => ({}));
+            if (response.status === 403) {
+                return {
+                    ok: false,
+                    error: 'HTTPS is required to send your public key to this host. Point a hostname at it and set MYLIBRE_SITE, or copy public.asc to data/keys/user-public.asc.',
+                };
+            }
+            if (response.status === 409) {
+                return {
+                    ok: false,
+                    error: payload.error || 'A different public key is already enrolled on this host.',
+                };
+            }
+            if (!response.ok || !payload.ok) {
+                return { ok: false, error: payload.error || 'Could not enroll the public key.' };
+            }
+            return { ok: true, fingerprint: payload.fingerprint || '' };
+        } catch (error) {
+            return { ok: false, error: error.message || 'Could not enroll the public key.' };
+        }
+    }
+
     async function enterUnlocked(keys, persistKeys) {
         vaultKeys = keys;
         if (persistKeys) {
@@ -1793,6 +1829,8 @@
         document.body.classList.remove('locked');
         document.body.classList.add('unlocked');
         showUnlockError('');
+        const enrolled = await enrollPublicKey(keys.publicArmored);
+        showIoStatus(enrolled.ok ? '' : enrolled.error, !enrolled.ok);
         // Clear after a tick so password managers can snapshot the submitted value.
         setTimeout(() => {
             passphraseEl.value = '';

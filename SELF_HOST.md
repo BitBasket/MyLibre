@@ -114,7 +114,7 @@ public/status.json.asc
 public/history-YYYYMMDD.json.asc
 ```
 
-Open `http://<droplet-ip>/`. The PWA asks for the public key, private key, and passphrase. Use the files in `data/keys/`.
+Open `http://<droplet-ip>/` only to confirm Caddy is up. Key enrollment and the LibreLinkUp connect form need HTTPS, so finish DNS (next section) before unlocking with a browser-generated keypair.
 
 ## 4. HTTPS
 
@@ -136,12 +136,13 @@ IP addresses do not get public certificates. Leave `MYLIBRE_SITE=:80` until you 
 
 ## 5. Unlock and install the PWA
 
-1. Open the site in Chrome (or another Chromium browser).
-2. Paste or upload `data/keys/public.asc` and `data/keys/private.asc`.
-3. Enter `PGP_PASSPHRASE`.
-4. Optionally: Install page as app / Create shortcut → Open as window.
+1. Open the HTTPS site in Chrome (or another Chromium browser).
+2. Choose **Create a new keypair** (recommended) or **I have a keypair**.
+3. If creating: download both `public.asc` and `private.asc`, tick the confirmation, and continue. The PWA sends **only the public key** to `/api/keys`, which stores it as `data/keys/user-public.asc`. The private key stays in the browser.
+4. If you already have a pair: paste or upload those files and the passphrase. The public half is enrolled the same way.
+5. Optionally: Install page as app / Create shortcut → Open as window.
 
-Keys stay in the browser. The server never receives the private key from the PWA.
+The poller's own server keypair (`data/keys/public.asc` + `private.asc`) still encrypts the LibreLinkUp session file. It is not the key the dashboard decrypts with once a user public key is enrolled.
 
 ## Operate
 

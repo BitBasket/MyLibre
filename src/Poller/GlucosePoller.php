@@ -47,6 +47,7 @@ final class GlucosePoller
         private readonly bool $persistHistory = true,
         private readonly int $bucketSeconds = self::DEFAULT_BUCKET_SECONDS,
         private readonly ?CsvHistoryStore $csv = null,
+        private readonly mixed $beforePoll = null,
     ) {
     }
 
@@ -57,6 +58,7 @@ final class GlucosePoller
      */
     public function run(bool $once = false, ?callable $wait = null): void
     {
+        $this->prepare();
         $this->export(null, $this->state->load(), $this->needsInteractiveLogin());
         $delay = $this->intervalSeconds;
         $wait ??= static function (int $seconds): bool {
@@ -66,6 +68,7 @@ final class GlucosePoller
         };
 
         while (true) {
+            $this->prepare();
             if ($this->needsInteractiveLogin()) {
                 $this->logger->error('LibreLinkUp login required');
                 $this->exportLoginRequired();
@@ -95,6 +98,7 @@ final class GlucosePoller
 
     public function poll(?int $currentDelay = null): int
     {
+        $this->prepare();
         $delay = $currentDelay ?? $this->intervalSeconds;
 
         try {
@@ -347,6 +351,13 @@ final class GlucosePoller
                 $suppliedCount,
                 $missingCount,
             ));
+        }
+    }
+
+    private function prepare(): void
+    {
+        if (is_callable($this->beforePoll)) {
+            ($this->beforePoll)();
         }
     }
 

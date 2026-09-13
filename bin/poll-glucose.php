@@ -8,13 +8,17 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 $app = App\Support\App::boot(dirname(__DIR__));
 $once = in_array('--once', $argv, true);
 
+$writer = $app->bucketWriter();
 $poller = new App\Poller\GlucosePoller(
     $app->provider(),
     $app->pollState(),
-    $app->bucketWriter(),
+    $writer,
     $app->logger,
     $app->config->abbottPollSeconds,
     persistHistory: true,
+    beforePoll: static function () use ($app, $writer): void {
+        $writer->useRecipient($app->recipientCrypto());
+    },
 );
 
 $intake = $once ? null : $app->authIntake();
