@@ -9,15 +9,17 @@ namespace App\Http;
  *
  * The browser talks only to this process. LibreLinkUp login POSTs are
  * forwarded to AUTH_LISTEN on loopback. The poller never binds a public
- * socket. Credential POSTs are refused unless this is a direct loopback
- * hit (local `composer start`) or a loopback reverse proxy that already
- * terminated TLS (X-Forwarded-Proto: https).
+ * socket. Credential POSTs (LibreLinkUp login and public-key enrollment)
+ * are refused unless this is a direct loopback hit (local `composer start`)
+ * or a trusted reverse proxy that already terminated TLS
+ * (`X-Forwarded-Proto: https`).
  */
 final class Kernel
 {
     public function __construct(
         private readonly string $publicDir,
         private readonly string $authListen,
+        private readonly ?KeyEnrollmentHandler $keys = null,
     ) {
     }
 
@@ -29,6 +31,19 @@ final class Kernel
     {
         $path = parse_url((string) ($server['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/';
         $method = strtoupper((string) ($server['REQUEST_METHOD'] ?? 'GET'));
+
+        if (str_starts_with($path, '/api/keys')) {
+            if ($this->keys === null) {
+                return self::json(404, ['ok' => false, 'error' => 'not found']);
+            }
+            if ($method === 'POST' && !self::allowsCredentialPost($server)) {
+                return self::json(403, ['ok' => false, 'error' => 'https required']);
+            }
+
+            [$status, $payload] = $this->keys->handle($method, $path, $body);
+
+            return self::json($status, $payload);
+        }
 
         if (str_starts_with($path, '/api/librelink/')) {
             if (self::isLibreLinkLogin($method, $path) && !self::allowsCredentialPost($server)) {
@@ -74,17 +89,38 @@ final class Kernel
     public static function allowsCredentialPost(array $server): bool
     {
         $remote = (string) ($server['REMOTE_ADDR'] ?? '');
-        if (!self::isLoopbackAddress($remote)) {
-            return false;
-        }
-
         $forwardedProto = strtolower(trim(explode(',', (string) ($server['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
         $forwardedFor = trim((string) ($server['HTTP_X_FORWARDED_FOR'] ?? ''));
-        if ($forwardedProto !== '' || $forwardedFor !== '') {
+        $proxied = $forwardedProto !== '' || $forwardedFor !== '';
+
+        if ($proxied) {
+            // Caddy/nginx on the Docker network is a private-IP hop, not
+            // loopback. The API port must not be published; only a trusted
+            // proxy may set these headers.
+            if (!self::isTrustedProxy($remote)) {
+                return false;
+            }
+
             return $forwardedProto === 'https';
         }
 
-        return self::isLoopbackHost((string) ($server['HTTP_HOST'] ?? ''));
+        return self::isLoopbackAddress($remote) && self::isLoopbackHost((string) ($server['HTTP_HOST'] ?? ''));
+    }
+
+    public static function isTrustedProxy(string $address): bool
+    {
+        $address = strtolower(trim($address));
+        if (str_starts_with($address, '::ffff:')) {
+            $address = substr($address, 7);
+        }
+        if (self::isLoopbackAddress($address)) {
+            return true;
+        }
+        if (filter_var($address, FILTER_VALIDATE_IP) === false) {
+            return false;
+        }
+
+        return filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
     }
 
     public static function isLibreLinkLogin(string $method, string $path): bool
@@ -135,7 +171,10 @@ final class Kernel
     {
         return [
             'status' => $status,
-            'headers' => ['Content-Type' => 'application/json; charset=utf-8'],
+            'headers' => [
+                'Content-Type' => 'application/json; charset=utf-8',
+                'Cache-Control' => 'no-store',
+            ],
             'body' => json_encode($payload, JSON_THROW_ON_ERROR),
         ];
     }

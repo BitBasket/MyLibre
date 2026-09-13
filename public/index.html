@@ -9,7 +9,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
-    <link rel="stylesheet" href="/app.css?v=21">
+    <link rel="stylesheet" href="/app.css?v=23">
 </head>
 <body class="locked">
     <section id="unlock-gate" class="unlock-gate" aria-labelledby="unlock-title">
@@ -43,7 +43,7 @@
             </div>
 
             <div id="new-key-panel" class="hidden">
-                <p class="muted">Your keypair is created in this browser and never sent to the server. Download both files, keep the private key safe, and save the passphrase in your password manager.</p>
+                <p class="muted">Your keypair is created in this browser. Download both files, keep the private key safe, and save the passphrase in your password manager. Only the <strong>public</strong> key is sent to this host so new readings can be encrypted to you. The private key never leaves this device.</p>
                 <form id="new-key-form" method="post" action="/" autocomplete="on" data-form-type="signup">
                     <label for="new-username">Username</label>
                     <input id="new-username" name="username" type="text" autocomplete="username" value="mylibre" autocapitalize="off" spellcheck="false">
@@ -76,6 +76,7 @@
                 <button type="button" id="import-btn" class="lock-btn">Import</button>
                 <input id="import-file" type="file" accept=".csv,.asc,.gpg,.pgp,text/csv,text/plain,application/pgp-encrypted" hidden>
                 <button type="button" id="lock-btn" class="lock-btn">Lock</button>
+                <button type="button" id="settings-btn" class="lock-btn">Settings</button>
             </div>
         </header>
         <p id="io-status" class="io-status hidden" role="status"></p>
@@ -116,7 +117,10 @@
 
         <section class="chart-wrap">
             <div class="chart-toolbar">
-                <p id="chart-window" class="chart-window">last 3 hours</p>
+                <div class="chart-window-group">
+                    <p id="chart-window" class="chart-window">last 3 hours</p>
+                    <button type="button" id="chart-copy" class="chart-copy" title="Copy the readings in this window as CSV">Copy CSV</button>
+                </div>
                 <p id="chart-stats" class="chart-stats"></p>
             </div>
             <div class="chart-main">
@@ -129,22 +133,44 @@
             <p class="chart-hint">Hover a reading · scroll to zoom · drag to pan · drag the window to scrub all history</p>
         </section>
     </main>
-    <div id="import-passphrase-modal" class="import-modal hidden" role="dialog" aria-modal="true" aria-labelledby="import-passphrase-title">
+    <div id="import-passphrase-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="import-passphrase-title">
         <form id="import-passphrase-form" class="unlock-card">
             <h2 id="import-passphrase-title">Password-protected CSV</h2>
             <p class="muted">This file is OpenPGP-encrypted with a symmetric passphrase.</p>
             <label for="import-passphrase">Passphrase</label>
             <input id="import-passphrase" type="password" autocomplete="off" required autocapitalize="off" autocorrect="off" spellcheck="false">
             <p id="import-passphrase-error" class="unlock-error hidden" role="alert"></p>
-            <div class="import-modal-actions">
+            <div class="modal-actions">
                 <button type="button" id="import-passphrase-cancel" class="secondary">Cancel</button>
                 <button type="submit" id="import-passphrase-submit">Decrypt</button>
+            </div>
+        </form>
+    </div>
+    <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <form id="settings-form" class="unlock-card" novalidate>
+            <h2 id="settings-title">Glucose targets</h2>
+            <p class="muted">These three levels set the chart colours, the y-axis, and the time-at-goal line. They are saved in this browser only.</p>
+
+            <label for="settings-hypoglycemic">Hypoglycemic (mg/dL)</label>
+            <input id="settings-hypoglycemic" type="number" min="20" max="600" step="1" inputmode="numeric" required autocomplete="off">
+
+            <label for="settings-healthy-goal">Healthy goal (mg/dL)</label>
+            <input id="settings-healthy-goal" type="number" min="20" max="600" step="1" inputmode="numeric" required autocomplete="off">
+
+            <label for="settings-warning">Warning (mg/dL)</label>
+            <input id="settings-warning" type="number" min="20" max="600" step="1" inputmode="numeric" required autocomplete="off">
+
+            <p id="settings-error" class="unlock-error hidden" role="alert"></p>
+            <div class="modal-actions">
+                <button type="button" id="settings-reset" class="secondary">Defaults</button>
+                <button type="button" id="settings-cancel" class="secondary">Cancel</button>
+                <button type="submit" id="settings-save">Save</button>
             </div>
         </form>
     </div>
     <script src="/vendor/chart.umd.min.js"></script>
     <script src="/vendor/openpgp.min.js"></script>
     <script src="/pgp.js?v=18"></script>
-    <script src="/app.js?v=30"></script>
+    <script src="/app.js?v=34"></script>
 </body>
 </html>

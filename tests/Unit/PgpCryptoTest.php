@@ -34,6 +34,7 @@ final class PgpCryptoTest extends TestCase
         $publicOnly = new PgpCrypto($dir . '/public.asc');
         $this->assertFalse($publicOnly->hasPrivateKey());
         $publicOnly->validate();
+        $this->assertMatchesRegularExpression('/^[A-F0-9]{40}$/i', $publicOnly->publicFingerprint());
 
         $cipher = $publicOnly->encrypt('{"ok":true}');
         $this->assertStringContainsString('BEGIN PGP MESSAGE', $cipher);

@@ -119,6 +119,7 @@ body:not(.locked) .unlock-gate {
 .unlock-card textarea,
 .unlock-card input[type="text"],
 .unlock-card input[type="password"],
+.unlock-card input[type="number"],
 .unlock-card input[type="file"] {
     width: 100%;
     box-sizing: border-box;
@@ -131,12 +132,14 @@ body:not(.locked) .unlock-gate {
 }
 
 .unlock-card input[type="text"],
-.unlock-card input[type="password"] {
+.unlock-card input[type="password"],
+.unlock-card input[type="number"] {
     font-family: inherit;
 }
 
 .unlock-card input[type="password"]:focus,
-.unlock-card input[type="text"]:focus {
+.unlock-card input[type="text"]:focus,
+.unlock-card input[type="number"]:focus {
     outline: 2px solid #2a8f84;
     border-color: #2a8f84;
 }
@@ -307,7 +310,7 @@ body:not(.locked) .unlock-gate {
     display: none;
 }
 
-.import-modal {
+.modal {
     position: fixed;
     inset: 0;
     z-index: 20;
@@ -318,19 +321,19 @@ body:not(.locked) .unlock-gate {
     background: rgba(4, 12, 16, 0.72);
 }
 
-.import-modal.hidden {
+.modal.hidden {
     display: none;
 }
 
-.import-modal-actions {
+.modal-actions {
     display: flex;
     gap: 0.5rem;
     margin-top: 1rem;
 }
 
-.import-modal .import-modal-actions button,
-.import-modal .import-modal-actions button.secondary,
-.import-modal .import-modal-actions button[type="submit"] {
+.modal .modal-actions button,
+.modal .modal-actions button.secondary,
+.modal .modal-actions button[type="submit"] {
     flex: 1;
     margin-top: 0;
     width: auto;
@@ -403,12 +406,39 @@ body:not(.locked) .unlock-gate {
     min-height: 1.4rem;
 }
 
+.chart-window-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 .chart-window,
 .chart-stats,
 .chart-hint {
     margin: 0;
     color: var(--muted);
     font-size: 0.82rem;
+}
+
+.chart-copy {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem;
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+.chart-copy:hover {
+    color: var(--ink);
+}
+
+.chart-copy.copied {
+    color: var(--fresh);
+    border-color: var(--fresh);
 }
 
 .chart-stats {
@@ -419,6 +449,11 @@ body:not(.locked) .unlock-gate {
 .chart-stats strong {
     color: var(--ink);
     font-weight: 650;
+}
+
+.chart-target-line {
+    display: block;
+    margin-top: 0.15rem;
 }
 
 .chart-main {

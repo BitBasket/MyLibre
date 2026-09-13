@@ -42,7 +42,7 @@ final class Config
 
         $sqlite = Env::get('SQLITE_PATH', '') ?? '';
         $session = Env::get('SESSION_PATH', 'data/libre-session.json.asc') ?? 'data/libre-session.json.asc';
-        $userPublic = Env::get('PGP_USER_PUBLIC_KEY_PATH', '') ?? '';
+        $userPublic = Env::get('PGP_USER_PUBLIC_KEY_PATH', 'data/keys/user-public.asc') ?? 'data/keys/user-public.asc';
 
         return new self(
             root: $root,

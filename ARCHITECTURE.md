@@ -2,7 +2,7 @@
 
 This document describes how the glucose poller actually works in the current tree. It is the backend half of the dashboard: a long-running PHP process that talks to LibreLinkUp (or a mock), then writes static encrypted files under `public/` for a file server to serve. The browser is a separate pass.
 
-The poller is a **write-only relay**. It never reads a glucose value back from disk. Abbott field names never leave `src/LibreLink/`. The only HTTP it serves is the loopback `AUTH_LISTEN` intake (`/api/librelink/status` and `/api/librelink/login`). The public PHP API (`src/Http/Kernel.php`, `bin/serve.php`) is what the browser talks to; that process forwards LibreLinkUp login POSTs to the poller on loopback and refuses those POSTs unless the client is loopback or a TLS-terminating proxy (`X-Forwarded-Proto: https`).
+The poller is a **write-only relay**. It never reads a glucose value back from disk. Abbott field names never leave `src/LibreLink/`. The only HTTP it serves is the loopback `AUTH_LISTEN` intake (`/api/librelink/status` and `/api/librelink/login`). The public PHP API (`src/Http/Kernel.php`, `bin/serve.php`) is what the browser talks to; that process handles `POST /api/keys` (stores the user's public key at `PGP_USER_PUBLIC_KEY_PATH`) and forwards LibreLinkUp login POSTs to the poller on loopback. Those POSTs are refused unless the client is loopback or a trusted reverse proxy that already terminated TLS (`X-Forwarded-Proto: https`).
 
 ```text
 Libre 2  →  LibreLink EG (phone, BLE)
@@ -45,7 +45,7 @@ Equivalent: `composer poll`, or the systemd user unit `systemd/libre-glucose.ser
 | Factory | What it builds |
 | --- | --- |
 | `crypto()` | Server keypair (`PGP_PUBLIC_KEY_PATH` + `PGP_PRIVATE_KEY_PATH` + `PGP_PASSPHRASE`). Required to encrypt/decrypt the LibreLinkUp session cache. Validates the pair on first use. |
-| `recipientCrypto()` | Key used for **outbound** files. If `PGP_USER_PUBLIC_KEY_PATH` is set, that public key alone (unsigned encrypt). Otherwise the server keypair (sign + encrypt). |
+| `recipientCrypto()` | Key used for **outbound** files. If `PGP_USER_PUBLIC_KEY_PATH` (default `data/keys/user-public.asc`) is readable, that public key alone (unsigned encrypt). Otherwise the server keypair (sign + encrypt). Reloaded each poll so enrollment takes effect without a restart. |
 | `pollState()` | `PollStateStore($config->pollStatePath)` |
 | `bucketWriter()` | `BucketWriter` writing into `publicPath` (default `public/`), using `recipientCrypto()`, `bucketSeconds` (default 300) |
 | `provider()` | `mock` → `MockGlucoseProvider`. `librelinkup` → `LibreLinkUpProvider` with an encrypted `SessionStore`. |

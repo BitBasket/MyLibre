@@ -27,13 +27,18 @@ final class BucketWriter
     public function __construct(
         private readonly Config $config,
         private readonly string $directory,
-        private readonly ?PgpCrypto $crypto = null,
+        private ?PgpCrypto $crypto = null,
         private readonly string $passphrase = '',
         private readonly int $bucketSeconds = 300,
     ) {
         if ($this->bucketSeconds < 1) {
             throw new RuntimeException('Bucket size must be at least one second.');
         }
+    }
+
+    public function useRecipient(?PgpCrypto $crypto): void
+    {
+        $this->crypto = $crypto;
     }
 
     public function writeCurrent(?GlucoseReadingDTO $latest): void
