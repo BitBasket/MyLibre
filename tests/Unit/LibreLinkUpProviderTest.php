@@ -81,6 +81,22 @@ final class LibreLinkUpProviderTest extends TestCase
         $this->assertSame(174, $readings[2]->glucoseMgDl);
     }
 
+    public function testHistoryAcceptsObjectShapedGraphData(): void
+    {
+        $history = [];
+        $graph = json_decode($this->fixture('graph.json'), true);
+        $graph['data']['graphData'] = (object) $graph['data']['graphData'];
+        $provider = $this->provider([
+            $this->jsonResponse($this->fixture('login-success.json')),
+            $this->jsonResponse($this->fixture('connections.json')),
+            $this->jsonResponse(json_encode($graph, JSON_THROW_ON_ERROR)),
+        ], $history);
+
+        $readings = $provider->getHistory();
+        $this->assertCount(3, $readings);
+        $this->assertSame(160, $readings[0]->glucoseMgDl);
+    }
+
     public function testInvalidLogin(): void
     {
         $history = [];

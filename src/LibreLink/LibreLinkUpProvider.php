@@ -101,6 +101,9 @@ final class LibreLinkUpProvider implements GlucoseProvider, LibreLinkAuthenticat
         $readings[] = $this->normalizeReading($current);
 
         $points = $this->property($graph, 'graphData');
+        if (is_object($points)) {
+            $points = get_object_vars($points);
+        }
         if (is_array($points)) {
             foreach ($points as $point) {
                 if (is_object($point) || is_array($point)) {

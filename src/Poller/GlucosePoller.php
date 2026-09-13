@@ -27,6 +27,8 @@ final class GlucosePoller
 {
     private const SENSOR_FRESHNESS_SECONDS = 180;
     private const DEFAULT_BUCKET_SECONDS = 300;
+    /** When the latest sample did not advance, retry before the next minute is also missed. */
+    private const UNCHANGED_RETRY_SECONDS = 15;
 
     private bool $sensorLostObserved = false;
 
@@ -75,11 +77,15 @@ final class GlucosePoller
                 continue;
             }
 
+            $started = time();
             $delay = $this->poll($delay);
             if ($once) {
                 return;
             }
-            if ($wait($delay)) {
+            // Sleep the remainder of the delay so PGP/network work does not
+            // stretch a 60s interval into 62s and skip a one-minute sample.
+            $sleep = max(0, $delay - (time() - $started));
+            if ($wait($sleep)) {
                 $delay = $this->intervalSeconds;
             }
         }
@@ -91,7 +97,10 @@ final class GlucosePoller
 
         try {
             $state = $this->state->load();
-            $watermark = $state->latest();
+            // Open-bucket samples are not in PollState until the 5-minute
+            // window closes. Gap detection must still treat them as known,
+            // or every live 1-minute poll looks like a growing hole.
+            $watermark = $this->latestCollected($state);
 
             $readings = $this->persistHistory
                 ? $this->provider->getHistory()
@@ -148,7 +157,7 @@ final class GlucosePoller
 
             $this->export($fetchedLatest, $state);
 
-            return $this->intervalSeconds;
+            return $this->nextDelay($fetchedLatest, $added);
         } catch (LibreLinkAuthException $e) {
             $this->logger->error($e->getMessage());
             $this->exportLoginRequired();
@@ -176,6 +185,42 @@ final class GlucosePoller
     private function bucketOf(int $epochSeconds): int
     {
         return intdiv($epochSeconds, $this->bucketSeconds) * $this->bucketSeconds;
+    }
+
+    /**
+     * Newest sensor timestamp this process has already collected, including
+     * the still-open bucket that PollState has not finalised yet.
+     */
+    private function latestCollected(PollState $state): ?int
+    {
+        $latest = $state->latest();
+        if ($this->pending === []) {
+            return $latest;
+        }
+
+        $pendingLatest = (int) max(array_keys($this->pending));
+
+        return $latest === null ? $pendingLatest : max($latest, $pendingLatest);
+    }
+
+    /**
+     * LibreLinkUp only returns the latest measurement plus a ~15-minute graph.
+     * One-minute history exists only if we capture each current sample. When
+     * a poll sees the same timestamp (the next sample is not published yet),
+     * wait a short remainder instead of another full interval.
+     */
+    private function nextDelay(?GlucoseReadingDTO $fetchedLatest, int $added): int
+    {
+        if ($added > 0 || $fetchedLatest === null) {
+            return $this->intervalSeconds;
+        }
+
+        $age = (int) max(0, $fetchedLatest->timestamp->diffInSeconds(Carbon::now()));
+        if ($age > self::SENSOR_FRESHNESS_SECONDS) {
+            return $this->intervalSeconds;
+        }
+
+        return max(self::UNCHANGED_RETRY_SECONDS, $this->intervalSeconds - $age);
     }
 
     /**
@@ -318,7 +363,7 @@ final class GlucosePoller
     {
         try {
             $this->writer->writeCurrent($latest);
-            $this->writer->writeStatus($state->firstReadingAt, $state->latest(), $loginRequired);
+            $this->writer->writeStatus($state->firstReadingAt, $this->latestCollected($state), $loginRequired);
         } catch (Throwable $e) {
             $this->logger->error('Dashboard snapshot failed: ' . $e->getMessage());
         }

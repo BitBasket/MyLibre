@@ -291,6 +291,69 @@ final class GlucosePollerTest extends TestCase
         $this->assertStringContainsString('BACKFILL INCOMPLETE for gap', $this->log($stream));
     }
 
+    public function testLiveOneMinutePollsDoNotReportAGapAgainstUnfinalisedPending(): void
+    {
+        $first = new GlucoseReadingDTO(['timestamp' => '2026-09-13T12:41:25Z', 'glucoseMgDl' => 177, 'trend' => null, 'trendArrow' => null]);
+        $second = new GlucoseReadingDTO(['timestamp' => '2026-09-13T12:42:24Z', 'glucoseMgDl' => 176, 'trend' => null, 'trendArrow' => null]);
+        $provider = new class($first, $second) implements GlucoseProvider {
+            private int $calls = 0;
+
+            public function __construct(private GlucoseReadingDTO $first, private GlucoseReadingDTO $second)
+            {
+            }
+
+            public function authenticate(): LibreLinkUpSessionDTO
+            {
+                return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']);
+            }
+
+            public function getCurrentReading(): GlucoseReadingDTO
+            {
+                return $this->calls === 0 ? $this->first : $this->second;
+            }
+
+            public function getHistory(): array
+            {
+                return [$this->calls++ === 0 ? $this->first : $this->second];
+            }
+        };
+
+        $stream = fopen('php://memory', 'w+b');
+        $poller = $this->poller($provider, $stream, $this->seedWatermark('2026-09-13T12:39:23Z'));
+
+        Carbon::setTestNow('2026-09-13T12:41:30Z');
+        $this->assertSame(60, $poller->poll());
+        Carbon::setTestNow('2026-09-13T12:42:32Z');
+        $this->assertSame(60, $poller->poll());
+
+        $log = $this->log($stream);
+        $this->assertStringNotContainsString('READING GAP', $log);
+        $this->assertStringNotContainsString('BACKFILL INCOMPLETE', $log);
+        $this->assertCount(2, $this->storedReadings());
+    }
+
+    public function testUnchangedCurrentRetriesBeforeTheNextMinuteIsMissed(): void
+    {
+        $reading = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:10:00Z', 'glucoseMgDl' => 174, 'trend' => null, 'trendArrow' => null]);
+        $poller = $this->poller($this->replayProvider([$reading], $reading), fopen('php://memory', 'w+b'));
+
+        Carbon::setTestNow('2026-09-04T09:10:00Z');
+        $this->assertSame(60, $poller->poll());
+        Carbon::setTestNow('2026-09-04T09:11:10Z');
+        $this->assertSame(15, $poller->poll());
+    }
+
+    public function testStatusLatestIncludesOpenBucketPending(): void
+    {
+        $reading = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:10:00Z', 'glucoseMgDl' => 174, 'trend' => null, 'trendArrow' => null]);
+
+        Carbon::setTestNow('2026-09-04T09:10:00Z');
+        $this->poller($this->replayProvider([$reading], $reading), fopen('php://memory', 'ab'))->poll();
+
+        $status = json_decode((string) file_get_contents($this->directory . '/status.json'), true);
+        $this->assertSame('2026-09-04T09:10:00Z', $status['latestReadingAt']);
+    }
+
     public function testSuccessfulPollLogsGlucoseMgDl(): void
     {
         $reading = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:10:00Z', 'glucoseMgDl' => 174, 'trend' => 'falling', 'trendArrow' => '↘']);
@@ -661,7 +724,8 @@ final class GlucosePollerTest extends TestCase
         $poller = $this->poller($provider, fopen('php://memory', 'ab'));
         $this->assertSame(120, $poller->poll(60));
         $this->assertSame(60, $poller->poll(120));
-        $this->assertSame(60, $poller->poll());
+        // Same samples again: retry soon rather than sleeping another full minute.
+        $this->assertSame(15, $poller->poll());
 
         $stored = $this->storedReadings();
         $this->assertCount(2, $stored);
