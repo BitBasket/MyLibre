@@ -1268,6 +1268,50 @@
         return series;
     }
 
+    function formatDuration(ms) {
+        const totalMinutes = Math.max(0, Math.round(ms / MINUTE_MS));
+        const days = Math.floor(totalMinutes / (24 * 60));
+        const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
+        const minutes = totalMinutes % 60;
+        if (days > 0) {
+            return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+        }
+        if (hours > 0) {
+            return `${hours}h ${minutes}m`;
+        }
+        return `${minutes}m`;
+    }
+
+    // Share of the window spent at or below the high line. Each reading is
+    // weighted by the time until the next one, so uneven sampling does not skew
+    // the ratio. Gaps past the plot's own gap limit are dropped from both sides
+    // rather than counted as time at the line.
+    function highLineStats(points, threshold) {
+        const samples = points
+            .filter((point) => point.y != null && Number.isFinite(point.x))
+            .sort((a, b) => a.x - b.x);
+        if (!samples.length) {
+            return null;
+        }
+        const cap = gapLimitMs(MINUTE_MS);
+        let lastGap = MINUTE_MS;
+        let totalMs = 0;
+        let underMs = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+            const next = samples[i + 1];
+            const gap = next ? Math.min(next.x - samples[i].x, cap) : lastGap;
+            lastGap = gap;
+            totalMs += gap;
+            if (samples[i].y <= threshold) {
+                underMs += gap;
+            }
+        }
+        return {
+            percent: totalMs > 0 ? (underMs / totalMs) * 100 : 0,
+            durationMs: underMs,
+        };
+    }
+
     function renderStats(points) {
         windowEl.textContent = formatWindowLabel(viewStart, viewEnd);
         const values = points.map((point) => point.y).filter((value) => value != null);
@@ -1280,6 +1324,11 @@
         const avg = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
         const change = high - low;
         statsEl.innerHTML = `High <strong>${high}</strong> · Low <strong>${low}</strong> · Avg <strong>${avg}</strong> · Δ <strong>${change}</strong>`;
+        // TARGET_HIGH is the high line; it becomes a per-user setting later.
+        const range = highLineStats(points, TARGET_HIGH);
+        if (range) {
+            statsEl.innerHTML += `<span class="chart-target-line">≤ ${TARGET_HIGH}: <strong>${range.percent.toFixed(1)}%</strong> (${formatDuration(range.durationMs)})</span>`;
+        }
     }
 
     function eventPosition(event, instance) {

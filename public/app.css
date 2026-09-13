@@ -448,6 +448,11 @@ body:not(.locked) .unlock-gate {
     font-weight: 650;
 }
 
+.chart-target-line {
+    display: block;
+    margin-top: 0.15rem;
+}
+
 .chart-main {
     position: relative;
     height: min(420px, 52vh);
