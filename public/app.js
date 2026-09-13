@@ -724,10 +724,13 @@
         return readings;
     }
 
-    // Catch-up is written into sensor-time buckets that may already be 404s.
-    // Detect the hole with one bucket (5 min), not GAP_MS (20 min chart gap).
-    function rewindForRestore(current) {
-        const currentTs = readingTime(current);
+    // Catch-up files land at sensor-time URLs the dashboard may already have
+    // walked as 404s. Rewind to the left edge of a hole so those buckets are
+    // fetched again. Compare minute-floored times: current.json has seconds,
+    // localStorage does not, and once current is merged the tail gap vanishes
+    // while a 20+ minute interior hole remains.
+    function rewindForRestore(current, status) {
+        const currentTs = Math.floor(readingTime(current) / MINUTE_MS) * MINUTE_MS;
         if (!Number.isFinite(currentTs)) {
             return;
         }
@@ -737,20 +740,37 @@
         if (!history.length) {
             return;
         }
+
+        const earliestMs = status && status.earliestReadingAt
+            ? Math.floor(Date.parse(status.earliestReadingAt) / MINUTE_MS) * MINUTE_MS
+            : NaN;
         const times = [];
+        if (Number.isFinite(earliestMs)) {
+            times.push(earliestMs);
+        }
         for (let i = 0; i < history.length; i += 1) {
-            if (history[i].t !== currentTs) {
-                times.push(history[i].t);
+            times.push(history[i].t);
+        }
+        times.push(currentTs);
+        times.sort((a, b) => a - b);
+
+        const lookbackMs = currentTs - DAY_MS;
+        let rewindFrom = null;
+        for (let i = 1; i < times.length; i += 1) {
+            if (times[i] - times[i - 1] < GAP_MS) {
+                continue;
             }
+            if (times[i] <= lookbackMs) {
+                continue;
+            }
+            rewindFrom = Math.max(times[i - 1], lookbackMs);
+            break;
         }
-        if (!times.length) {
+        if (rewindFrom == null) {
             return;
         }
-        const anchor = times[times.length - 1];
-        if (currentTs - anchor <= bucketSeconds * 1000) {
-            return;
-        }
-        const rewindTo = bucketOf(Math.floor(anchor / 1000)) - bucketSeconds;
+
+        const rewindTo = bucketOf(Math.floor(rewindFrom / 1000)) - bucketSeconds;
         consumedBucket = consumedBucket == null ? rewindTo : Math.min(consumedBucket, rewindTo);
         for (const bucket of [...absentBuckets]) {
             if (bucket >= rewindTo) {
@@ -1842,7 +1862,7 @@
             const current = await readSnapshot(currentRes);
             const status = isOkResponse(statusRes) ? await readSnapshot(statusRes) : {};
             snapshotLoginRequired = !!status.loginRequired;
-            rewindForRestore(current);
+            rewindForRestore(current, status);
             const readings = mergedReadings([...(await loadHistory(status)), current]);
             const historyChanged = readings !== allReadings;
             renderCurrent(current);
@@ -1968,6 +1988,10 @@
             newPassphraseEl.value = '';
             newPassphraseConfirmEl.value = '';
         }, 0);
+        const cached = storedHistory();
+        if (cached.length) {
+            renderChart(cached);
+        }
         startPolling();
     }
 
