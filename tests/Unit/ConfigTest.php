@@ -45,6 +45,28 @@ final class ConfigTest extends TestCase
         $this->assertSame('127.0.0.1:8766', $config->authListen);
     }
 
+    public function testLibreLinkCredentialsComeFromDotEnv(): void
+    {
+        $root = sys_get_temp_dir() . '/mylibre-config-' . uniqid('', true);
+        mkdir($root);
+        file_put_contents($root . '/.env', "LIBRELINK_EMAIL=user@example.com\nLIBRELINK_PASSWORD=env-secret\n");
+        Env::reset();
+        foreach (['LIBRELINK_EMAIL', 'LIBRELINK_PASSWORD'] as $key) {
+            putenv($key);
+            unset($_ENV[$key]);
+        }
+
+        $config = Config::fromEnv($root);
+        $this->assertSame('user@example.com', $config->libreLinkEmail);
+        $this->assertSame('env-secret', $config->libreLinkPassword);
+
+        foreach (['LIBRELINK_EMAIL', 'LIBRELINK_PASSWORD'] as $key) {
+            putenv($key);
+            unset($_ENV[$key]);
+        }
+        Env::reset();
+    }
+
     public function testEmptyAuthListenDisablesIntake(): void
     {
         $root = sys_get_temp_dir() . '/mylibre-config-' . uniqid('', true);

@@ -23,16 +23,106 @@ final class DenseHistoryCsv
      */
     public static function encode(array $readings): string
     {
-        $byDay = [];
+        return self::encodeDays(self::overlay([], $readings));
+    }
+
+    /**
+     * Overlay new readings onto an existing dense CSV. Later values win the
+     * same UTC minute, matching dashboard import.
+     *
+     * @param GlucoseReadingDTO[] $readings
+     */
+    public static function merge(string $existing, array $readings): string
+    {
+        return self::encodeDays(self::overlay(self::daysFromCsv($existing), $readings));
+    }
+
+    /**
+     * @return GlucoseReadingDTO[]
+     */
+    public static function decode(string $text): array
+    {
+        $readings = [];
+        foreach (self::daysFromCsv($text) as $day => $slots) {
+            $start = Carbon::createFromFormat('Ymd His', $day . ' 000000', 'UTC');
+            if ($start === false) {
+                continue;
+            }
+            ksort($slots);
+            foreach ($slots as $slot => $mgdl) {
+                $readings[] = new GlucoseReadingDTO([
+                    'timestamp' => $start->copy()->addMinutes($slot),
+                    'glucoseMgDl' => $mgdl,
+                    'trend' => null,
+                    'trendArrow' => null,
+                    'source' => 'librelinkup',
+                ]);
+            }
+        }
+
+        return $readings;
+    }
+
+    /**
+     * @param array<string, array<int, int>> $byDay
+     * @param GlucoseReadingDTO[] $readings
+     * @return array<string, array<int, int>>
+     */
+    private static function overlay(array $byDay, array $readings): array
+    {
         foreach ($readings as $reading) {
             $utc = $reading->timestamp->copy()->utc();
-            $day = $utc->format('Ymd');
             $slot = ($utc->hour * 60) + $utc->minute;
             if ($slot < 0 || $slot >= self::SLOTS) {
                 continue;
             }
-            $byDay[$day][$slot] = $reading->glucoseMgDl;
+            $byDay[$utc->format('Ymd')][$slot] = $reading->glucoseMgDl;
         }
+
+        return $byDay;
+    }
+
+    /**
+     * @return array<string, array<int, int>>
+     */
+    private static function daysFromCsv(string $text): array
+    {
+        $byDay = [];
+        if ($text === '') {
+            return $byDay;
+        }
+
+        foreach (preg_split('/\r?\n/', $text) as $line) {
+            if ($line === '' || $line[0] === '#') {
+                continue;
+            }
+            $parts = preg_split('/[,\t]/', $line);
+            if ($parts === false || count($parts) < 2 || !preg_match('/^\d{8}$/', $parts[0])) {
+                continue;
+            }
+            $day = $parts[0];
+            $limit = min(self::SLOTS, count($parts) - 1);
+            for ($i = 0; $i < $limit; $i++) {
+                $raw = $parts[$i + 1];
+                if ($raw === '' || !is_numeric($raw)) {
+                    continue;
+                }
+                $value = (int) $raw;
+                if ($value >= 1000000) {
+                    continue;
+                }
+                $byDay[$day][$i] = $value;
+            }
+        }
+
+        return $byDay;
+    }
+
+    /**
+     * @param array<string, array<int, int>> $byDay
+     */
+    private static function encodeDays(array $byDay): string
+    {
         ksort($byDay);
 
         $out = '';

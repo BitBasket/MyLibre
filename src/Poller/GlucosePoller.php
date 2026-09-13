@@ -8,6 +8,7 @@ use App\Contract\GlucoseProvider;
 use App\Contract\LibreLinkAuthenticator;
 use App\DTO\GlucoseReadingDTO;
 use App\Export\BucketWriter;
+use App\Export\CsvHistoryStore;
 use App\LibreLink\LibreLinkAuthException;
 use App\LibreLink\LibreLinkNetworkException;
 use App\LibreLink\LibreLinkRateLimitException;
@@ -45,6 +46,7 @@ final class GlucosePoller
         private readonly int $intervalSeconds,
         private readonly bool $persistHistory = true,
         private readonly int $bucketSeconds = self::DEFAULT_BUCKET_SECONDS,
+        private readonly ?CsvHistoryStore $csv = null,
     ) {
     }
 
@@ -120,6 +122,7 @@ final class GlucosePoller
             // Collect readings not already emitted. Keyed by timestamp so
             // re-seen readings within a bucket collapse to one.
             $added = 0;
+            $fresh = [];
             foreach ($readings as $reading) {
                 $ts = $reading->timestamp->getTimestamp();
                 if ($state->hasSeen($ts)) {
@@ -127,8 +130,12 @@ final class GlucosePoller
                 }
                 if (!isset($this->pending[$ts])) {
                     $this->pending[$ts] = $reading;
+                    $fresh[] = $reading;
                     $added++;
                 }
+            }
+            if ($fresh !== []) {
+                $this->csv?->merge($fresh);
             }
 
             $nowBucket = $this->bucketOf(Carbon::now('UTC')->getTimestamp());

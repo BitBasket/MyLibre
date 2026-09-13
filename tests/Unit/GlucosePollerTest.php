@@ -9,6 +9,8 @@ use App\Contract\LibreLinkAuthenticator;
 use App\DTO\GlucoseReadingDTO;
 use App\DTO\LibreLinkUpSessionDTO;
 use App\Export\BucketWriter;
+use App\Export\CsvHistoryStore;
+use App\Export\DenseHistoryCsv;
 use App\LibreLink\LibreLinkAuthException;
 use App\LibreLink\LibreLinkNetworkException;
 use App\LibreLink\LibreLinkRateLimitException;
@@ -43,8 +45,13 @@ final class GlucosePollerTest extends TestCase
         Carbon::setTestNow();
     }
 
-    private function poller(GlucoseProvider $provider, $stream, ?PollStateStore $state = null, bool $persistHistory = true): GlucosePoller
-    {
+    private function poller(
+        GlucoseProvider $provider,
+        $stream,
+        ?PollStateStore $state = null,
+        bool $persistHistory = true,
+        ?CsvHistoryStore $csv = null,
+    ): GlucosePoller {
         return new GlucosePoller(
             $provider,
             $state ?? new PollStateStore($this->directory . '/state.json'),
@@ -52,6 +59,7 @@ final class GlucosePollerTest extends TestCase
             new Logger($stream),
             60,
             $persistHistory,
+            csv: $csv,
         );
     }
 
@@ -363,6 +371,48 @@ final class GlucosePollerTest extends TestCase
         $this->poller($this->replayProvider([$reading], $reading), $stream)->poll();
 
         $this->assertStringContainsString('Stored glucose reading 174 mg/dL', $this->log($stream));
+    }
+
+    public function testNewReadingsAreMergedIntoTheImportableCsv(): void
+    {
+        $first = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:10:00Z', 'glucoseMgDl' => 174, 'trend' => null, 'trendArrow' => null]);
+        $second = new GlucoseReadingDTO(['timestamp' => '2026-09-04T09:11:00Z', 'glucoseMgDl' => 175, 'trend' => null, 'trendArrow' => null]);
+        $provider = new class($first, $second) implements GlucoseProvider {
+            private int $calls = 0;
+
+            public function __construct(private GlucoseReadingDTO $first, private GlucoseReadingDTO $second)
+            {
+            }
+
+            public function authenticate(): LibreLinkUpSessionDTO
+            {
+                return new LibreLinkUpSessionDTO(['token' => 'x', 'baseUri' => 'https://api.libreview.io/']);
+            }
+
+            public function getCurrentReading(): GlucoseReadingDTO
+            {
+                return $this->second;
+            }
+
+            public function getHistory(): array
+            {
+                return $this->calls++ === 0 ? [$this->first] : [$this->first, $this->second];
+            }
+        };
+
+        $csvPath = $this->directory . '/mylibre.history.csv';
+        Carbon::setTestNow('2026-09-04T09:10:00Z');
+        $poller = $this->poller($provider, fopen('php://memory', 'ab'), csv: new CsvHistoryStore($csvPath));
+        $poller->poll();
+        Carbon::setTestNow('2026-09-04T09:11:00Z');
+        $poller->poll();
+
+        $decoded = DenseHistoryCsv::decode((string) file_get_contents($csvPath));
+        $this->assertCount(2, $decoded);
+        $this->assertSame(174, $decoded[0]->glucoseMgDl);
+        $this->assertSame(175, $decoded[1]->glucoseMgDl);
+        $this->assertSame('20260904', explode(',', (string) file_get_contents($csvPath))[0]);
+        $this->assertCount(1 + DenseHistoryCsv::SLOTS, explode(',', rtrim((string) file_get_contents($csvPath), "\n")));
     }
 
     public function testNewReadingsAreEmittedOnceIntoTheOpenBucket(): void

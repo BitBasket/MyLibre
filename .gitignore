@@ -1,6 +1,7 @@
 /vendor/
 /.env
 /data/*.json
+/data/*.csv
 /data/*.sqlite
 /data/*.sqlite-*
 /data/keys/

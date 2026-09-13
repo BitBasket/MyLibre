@@ -66,6 +66,36 @@ final class DenseHistoryCsvTest extends TestCase
         $this->assertSame('223', $day8[1]);
     }
 
+    public function testMergeOverlaysExistingCsvAndLaterValueWinsTheMinute(): void
+    {
+        $existing = DenseHistoryCsv::encode([
+            self::reading('2026-09-08T00:00:00Z', 100),
+            self::reading('2026-09-08T00:02:00Z', 102),
+        ]);
+        $merged = DenseHistoryCsv::merge($existing, [
+            self::reading('2026-09-08T00:00:40Z', 101),
+            self::reading('2026-09-08T00:01:00Z', 110),
+            self::reading('2026-09-07T23:59:00Z', 189),
+        ]);
+
+        $decoded = DenseHistoryCsv::decode($merged);
+        $this->assertCount(4, $decoded);
+        $this->assertSame('2026-09-07 23:59:00', $decoded[0]->timestamp->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame(189, $decoded[0]->glucoseMgDl);
+        $this->assertSame(101, $decoded[1]->glucoseMgDl);
+        $this->assertSame(110, $decoded[2]->glucoseMgDl);
+        $this->assertSame(102, $decoded[3]->glucoseMgDl);
+    }
+
+    public function testDecodeSkipsCommentsBlankLinesAndNonNumericCells(): void
+    {
+        $line = DenseHistoryCsv::encode([self::reading('2026-09-08T00:00:00Z', 223)]);
+        $text = "# exported\n\n" . $line;
+        $decoded = DenseHistoryCsv::decode($text);
+        $this->assertCount(1, $decoded);
+        $this->assertSame(223, $decoded[0]->glucoseMgDl);
+    }
+
     private static function reading(string $iso, int $mgdl): GlucoseReadingDTO
     {
         return new GlucoseReadingDTO([

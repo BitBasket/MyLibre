@@ -64,6 +64,14 @@ final class Env
     }
 
     /**
+     * Value as written in the loaded .env file, ignoring process environment.
+     */
+    public static function fromDotEnv(string $key): ?string
+    {
+        return self::$loaded[$key] ?? null;
+    }
+
+    /**
      * Whether a value written as "KEY=value" is read back unchanged.
      */
     public static function roundTrips(string $value): bool

@@ -75,6 +75,29 @@ final class EnvTest extends TestCase
         unset($_ENV['PGP_PASSPHRASE']);
     }
 
+    public function testFromDotEnvReadsTheFileEvenWhenProcessEnvDiffers(): void
+    {
+        $dir = self::tempDir();
+        file_put_contents($dir . '/.env', "LIBRELINK_EMAIL=from-file@example.com\nLIBRELINK_PASSWORD=file-secret\n");
+        putenv('LIBRELINK_EMAIL=from-process@example.com');
+        $_ENV['LIBRELINK_EMAIL'] = 'from-process@example.com';
+        putenv('LIBRELINK_PASSWORD');
+        unset($_ENV['LIBRELINK_PASSWORD']);
+        Env::reset();
+        Env::load($dir);
+
+        $this->assertSame('from-file@example.com', Env::fromDotEnv('LIBRELINK_EMAIL'));
+        $this->assertSame('file-secret', Env::fromDotEnv('LIBRELINK_PASSWORD'));
+        $this->assertSame('from-process@example.com', Env::get('LIBRELINK_EMAIL'));
+        $this->assertSame('file-secret', Env::get('LIBRELINK_PASSWORD'));
+
+        putenv('LIBRELINK_EMAIL');
+        unset($_ENV['LIBRELINK_EMAIL']);
+        putenv('LIBRELINK_PASSWORD');
+        unset($_ENV['LIBRELINK_PASSWORD']);
+        Env::reset();
+    }
+
     public function testWriteRejectsAnInvalidKey(): void
     {
         $this->expectException(InvalidArgumentException::class);
