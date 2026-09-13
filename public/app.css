@@ -119,6 +119,7 @@ body:not(.locked) .unlock-gate {
 .unlock-card textarea,
 .unlock-card input[type="text"],
 .unlock-card input[type="password"],
+.unlock-card input[type="number"],
 .unlock-card input[type="file"] {
     width: 100%;
     box-sizing: border-box;
@@ -131,12 +132,14 @@ body:not(.locked) .unlock-gate {
 }
 
 .unlock-card input[type="text"],
-.unlock-card input[type="password"] {
+.unlock-card input[type="password"],
+.unlock-card input[type="number"] {
     font-family: inherit;
 }
 
 .unlock-card input[type="password"]:focus,
-.unlock-card input[type="text"]:focus {
+.unlock-card input[type="text"]:focus,
+.unlock-card input[type="number"]:focus {
     outline: 2px solid #2a8f84;
     border-color: #2a8f84;
 }
@@ -307,7 +310,7 @@ body:not(.locked) .unlock-gate {
     display: none;
 }
 
-.import-modal {
+.modal {
     position: fixed;
     inset: 0;
     z-index: 20;
@@ -318,19 +321,19 @@ body:not(.locked) .unlock-gate {
     background: rgba(4, 12, 16, 0.72);
 }
 
-.import-modal.hidden {
+.modal.hidden {
     display: none;
 }
 
-.import-modal-actions {
+.modal-actions {
     display: flex;
     gap: 0.5rem;
     margin-top: 1rem;
 }
 
-.import-modal .import-modal-actions button,
-.import-modal .import-modal-actions button.secondary,
-.import-modal .import-modal-actions button[type="submit"] {
+.modal .modal-actions button,
+.modal .modal-actions button.secondary,
+.modal .modal-actions button[type="submit"] {
     flex: 1;
     margin-top: 0;
     width: auto;

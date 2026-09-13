@@ -2,14 +2,14 @@
     const FRESH_SECONDS = 180;
     const STALE_SECONDS = 600;
     const STALE_LEVELS = ['fresh', 'stale', 'disconnected', 'missing'];
-    const TARGET_LOW = 70;
-    const TARGET_HIGH = 180;
-    const RANGE_YELLOW_MAX = 240;
-    const RANGE_ORANGE_MAX = 349;
+    // Default glucose targets, in mg/dL. The Settings panel overrides these per
+    // browser, so every band below reads `settings` and never these defaults.
+    const DEFAULT_SETTINGS = { hypoglycemic: 100, healthyGoal: 180, warning: 300 };
+    const SETTINGS_KEY = 'mylibre.settings';
+    const RANGE_LOW = '#b71c1c';
     const RANGE_GREEN = '#3ddc97';
     const RANGE_YELLOW = '#f4c95d';
     const RANGE_ORANGE = '#f08c32';
-    const RANGE_DARK_RED = '#b71c1c';
     const FILL_ALPHA = 0.55;
     const MIN_WINDOW_MS = 15 * 60 * 1000;
     // LibreLinkUp graphData is ~15-minute samples; keep those connected after a backfill.
@@ -82,6 +82,15 @@
     const windowEl = document.getElementById('chart-window');
     const statsEl = document.getElementById('chart-stats');
     const copyWindowBtn = document.getElementById('chart-copy');
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const settingsForm = document.getElementById('settings-form');
+    const settingsHypoEl = document.getElementById('settings-hypoglycemic');
+    const settingsGoalEl = document.getElementById('settings-healthy-goal');
+    const settingsWarningEl = document.getElementById('settings-warning');
+    const settingsError = document.getElementById('settings-error');
+    const settingsReset = document.getElementById('settings-reset');
+    const settingsCancel = document.getElementById('settings-cancel');
 
     let rangeHours = 3;
     let pollSeconds = 5;
@@ -113,6 +122,7 @@
     const HISTORY_CSV_KEY = 'mylibre.h.csv';
     const COPY_CSV_LABEL = 'Copy CSV';
     let copyFlashTimer = null;
+    let settings = readSettings();
 
     function fetchLive(path) {
         return fetch(`${path}?t=${Date.now()}`, { cache: 'no-store' });
@@ -953,16 +963,16 @@
         if (value == null || !Number.isFinite(value)) {
             return RANGE_GREEN;
         }
-        if (value <= TARGET_HIGH) {
+        if (value < settings.hypoglycemic) {
+            return RANGE_LOW;
+        }
+        if (value <= settings.healthyGoal) {
             return RANGE_GREEN;
         }
-        if (value <= RANGE_YELLOW_MAX) {
+        if (value <= settings.warning) {
             return RANGE_YELLOW;
         }
-        if (value <= RANGE_ORANGE_MAX) {
-            return RANGE_ORANGE;
-        }
-        return RANGE_DARK_RED;
+        return RANGE_ORANGE;
     }
 
     function hexToRgba(hex, alpha) {
@@ -989,7 +999,8 @@
         }
 
         const offsetFor = (x) => (scales.x.getPixelForValue(x) - left) / width;
-        const thresholds = [TARGET_HIGH, RANGE_YELLOW_MAX, RANGE_ORANGE_MAX + 1];
+        // Values where the band colour flips, used to sharpen the gradient.
+        const thresholds = [settings.hypoglycemic, settings.healthyGoal + 1, settings.warning + 1];
         const stops = [];
         const addStop = (offset, color) => {
             stops.push({
@@ -1180,10 +1191,10 @@
     function yLimits(points) {
         const values = points.map((point) => point.y).filter((value) => value != null);
         if (!values.length) {
-            return { min: 60, max: 200 };
+            return { min: Math.max(0, settings.hypoglycemic - 40), max: settings.healthyGoal + 20 };
         }
-        const min = Math.min(TARGET_LOW, ...values);
-        const max = Math.max(TARGET_HIGH, ...values);
+        const min = Math.min(settings.hypoglycemic, ...values);
+        const max = Math.max(settings.healthyGoal, ...values);
         return {
             min: Math.floor((min - 15) / 10) * 10,
             max: Math.ceil((max + 15) / 10) * 10,
@@ -1324,10 +1335,11 @@
         const avg = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
         const change = high - low;
         statsEl.innerHTML = `High <strong>${high}</strong> · Low <strong>${low}</strong> · Avg <strong>${avg}</strong> · Δ <strong>${change}</strong>`;
-        // TARGET_HIGH is the high line; it becomes a per-user setting later.
-        const range = highLineStats(points, TARGET_HIGH);
+        // Time at or below the healthy goal, which the Settings panel owns.
+        const goal = settings.healthyGoal;
+        const range = highLineStats(points, goal);
         if (range) {
-            statsEl.innerHTML += `<span class="chart-target-line">≤ ${TARGET_HIGH}: <strong>${range.percent.toFixed(1)}%</strong> (${formatDuration(range.durationMs)})</span>`;
+            statsEl.innerHTML += `<span class="chart-target-line">≤ ${goal}: <strong>${range.percent.toFixed(1)}%</strong> (${formatDuration(range.durationMs)})</span>`;
         }
     }
 
@@ -1971,6 +1983,7 @@
         }
         document.body.classList.add('locked');
         document.body.classList.remove('unlocked');
+        closeSettings();
         passphraseEl.value = '';
         if (forgetSaved) {
             PgpVault.clearKeys().catch(() => {});
@@ -2220,6 +2233,115 @@
                 return;
             }
             showIoStatus(error.message || String(error), true);
+        }
+    });
+
+    function normalizeSettings(raw) {
+        const next = { ...DEFAULT_SETTINGS };
+        if (raw && typeof raw === 'object') {
+            Object.keys(DEFAULT_SETTINGS).forEach((key) => {
+                const value = Math.round(Number(raw[key]));
+                if (Number.isFinite(value) && value > 0) {
+                    next[key] = value;
+                }
+            });
+        }
+        // The bands must stay ordered; anything else falls back to the defaults.
+        if (next.hypoglycemic < next.healthyGoal && next.healthyGoal < next.warning) {
+            return next;
+        }
+        return { ...DEFAULT_SETTINGS };
+    }
+
+    function readSettings() {
+        try {
+            return normalizeSettings(JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'));
+        } catch (error) {
+            return { ...DEFAULT_SETTINGS };
+        }
+    }
+
+    function saveSettings(next) {
+        settings = normalizeSettings(next);
+        try {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        } catch (error) {
+            // Storage can be blocked or full; the change still applies to this tab.
+        }
+    }
+
+    function setSettingsError(message) {
+        settingsError.textContent = message;
+        settingsError.classList.toggle('hidden', !message);
+    }
+
+    function openSettings() {
+        settingsHypoEl.value = String(settings.hypoglycemic);
+        settingsGoalEl.value = String(settings.healthyGoal);
+        settingsWarningEl.value = String(settings.warning);
+        setSettingsError('');
+        settingsModal.classList.remove('hidden');
+        settingsHypoEl.focus();
+        settingsHypoEl.select();
+    }
+
+    function closeSettings() {
+        if (settingsModal.classList.contains('hidden')) {
+            return;
+        }
+        settingsModal.classList.add('hidden');
+        settingsBtn.focus();
+    }
+
+    // Returns { settings } or { error }, so the form can keep the modal open.
+    function settingsFromForm() {
+        const next = {
+            hypoglycemic: Math.round(Number(settingsHypoEl.value)),
+            healthyGoal: Math.round(Number(settingsGoalEl.value)),
+            warning: Math.round(Number(settingsWarningEl.value)),
+        };
+        if (!Object.values(next).every((value) => Number.isFinite(value) && value > 0)) {
+            return { error: 'Enter a whole number above 0 for every target.' };
+        }
+        if (next.hypoglycemic >= next.healthyGoal) {
+            return { error: 'Hypoglycemic must be below the healthy goal.' };
+        }
+        if (next.healthyGoal >= next.warning) {
+            return { error: 'Warning must be above the healthy goal.' };
+        }
+        return { settings: next };
+    }
+
+    settingsBtn.addEventListener('click', openSettings);
+    settingsCancel.addEventListener('click', closeSettings);
+    settingsModal.addEventListener('click', (event) => {
+        if (event.target === settingsModal) {
+            closeSettings();
+        }
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && !settingsModal.classList.contains('hidden')) {
+            closeSettings();
+        }
+    });
+    settingsReset.addEventListener('click', () => {
+        settingsHypoEl.value = String(DEFAULT_SETTINGS.hypoglycemic);
+        settingsGoalEl.value = String(DEFAULT_SETTINGS.healthyGoal);
+        settingsWarningEl.value = String(DEFAULT_SETTINGS.warning);
+        setSettingsError('');
+    });
+    settingsForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const result = settingsFromForm();
+        if (result.error) {
+            setSettingsError(result.error);
+            return;
+        }
+        saveSettings(result.settings);
+        closeSettings();
+        // Chart colours, the y-axis, and the time-at-goal line all read these.
+        if (allReadings.length) {
+            renderChart(allReadings);
         }
     });
 
