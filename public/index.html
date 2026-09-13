@@ -9,7 +9,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
-    <link rel="stylesheet" href="/app.css?v=21">
+    <link rel="stylesheet" href="/app.css?v=22">
 </head>
 <body class="locked">
     <section id="unlock-gate" class="unlock-gate" aria-labelledby="unlock-title">
@@ -116,7 +116,10 @@
 
         <section class="chart-wrap">
             <div class="chart-toolbar">
-                <p id="chart-window" class="chart-window">last 3 hours</p>
+                <div class="chart-window-group">
+                    <p id="chart-window" class="chart-window">last 3 hours</p>
+                    <button type="button" id="chart-copy" class="chart-copy" title="Copy the readings in this window as CSV">Copy CSV</button>
+                </div>
                 <p id="chart-stats" class="chart-stats"></p>
             </div>
             <div class="chart-main">
@@ -145,6 +148,6 @@
     <script src="/vendor/chart.umd.min.js"></script>
     <script src="/vendor/openpgp.min.js"></script>
     <script src="/pgp.js?v=18"></script>
-    <script src="/app.js?v=31"></script>
+    <script src="/app.js?v=32"></script>
 </body>
 </html>

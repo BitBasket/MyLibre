@@ -81,6 +81,7 @@
     const tooltipEl = document.getElementById('chart-tooltip');
     const windowEl = document.getElementById('chart-window');
     const statsEl = document.getElementById('chart-stats');
+    const copyWindowBtn = document.getElementById('chart-copy');
 
     let rangeHours = 3;
     let pollSeconds = 5;
@@ -110,6 +111,8 @@
     let persistedCurrentTs = null;
     let csvPrefix = '';
     const HISTORY_CSV_KEY = 'mylibre.h.csv';
+    const COPY_CSV_LABEL = 'Copy CSV';
+    let copyFlashTimer = null;
 
     function fetchLive(path) {
         return fetch(`${path}?t=${Date.now()}`, { cache: 'no-store' });
@@ -484,6 +487,73 @@
             'text/csv',
         );
         showIoStatus(`Exported ${readings.length} reading${readings.length === 1 ? '' : 's'}.`);
+    }
+
+    // The readings currently inside the visible chart window, i.e. exactly what
+    // the graph and its stats row are drawn from.
+    function visibleWindowReadings() {
+        const readings = allReadings.length ? allReadings : storedHistory();
+        const start = viewStart == null ? -Infinity : viewStart;
+        const end = viewEnd == null ? Infinity : viewEnd;
+        return visibleReadings(readings, start, end);
+    }
+
+    async function copyText(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return;
+            } catch (error) {
+                // Fall through to the legacy path (e.g. permission denied).
+            }
+        }
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.position = 'fixed';
+        area.style.top = '-1000px';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        let ok = false;
+        try {
+            ok = document.execCommand('copy');
+        } catch (error) {
+            ok = false;
+        } finally {
+            area.remove();
+        }
+        if (!ok) {
+            throw new Error('Clipboard copy is not available in this browser.');
+        }
+    }
+
+    function flashCopyButton() {
+        copyWindowBtn.classList.add('copied');
+        copyWindowBtn.textContent = 'Copied';
+        if (copyFlashTimer) {
+            clearTimeout(copyFlashTimer);
+        }
+        copyFlashTimer = setTimeout(() => {
+            copyWindowBtn.classList.remove('copied');
+            copyWindowBtn.textContent = COPY_CSV_LABEL;
+        }, 1500);
+    }
+
+    async function copyWindowCsv() {
+        const readings = visibleWindowReadings();
+        if (!readings.length) {
+            showIoStatus('No readings in this window to copy.', true);
+            return;
+        }
+        const csv = encodeHistoryCsv(readings).trim();
+        try {
+            await copyText(csv);
+            showIoStatus(`Copied ${readings.length} reading${readings.length === 1 ? '' : 's'} as CSV.`);
+            flashCopyButton();
+        } catch (error) {
+            showIoStatus(error.message || 'Unable to copy to the clipboard.', true);
+        }
     }
 
     function cancelledImport() {
@@ -2080,6 +2150,10 @@
         } catch (error) {
             showIoStatus(error.message || String(error), true);
         }
+    });
+
+    copyWindowBtn.addEventListener('click', () => {
+        copyWindowCsv();
     });
 
     importBtn.addEventListener('click', () => importFile.click());

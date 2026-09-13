@@ -403,12 +403,39 @@ body:not(.locked) .unlock-gate {
     min-height: 1.4rem;
 }
 
+.chart-window-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 .chart-window,
 .chart-stats,
 .chart-hint {
     margin: 0;
     color: var(--muted);
     font-size: 0.82rem;
+}
+
+.chart-copy {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem;
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+.chart-copy:hover {
+    color: var(--ink);
+}
+
+.chart-copy.copied {
+    color: var(--fresh);
+    border-color: var(--fresh);
 }
 
 .chart-stats {
