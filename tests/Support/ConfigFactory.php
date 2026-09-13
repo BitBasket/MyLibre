@@ -14,6 +14,9 @@ final class ConfigFactory
         string $region = 'AUTO',
         string $baseUri = '',
         string $patientId = '',
+        string $email = 'user@example.com',
+        string $password = 'secret',
+        string $authListen = '',
     ): Config {
         return new Config(
             root: $root,
@@ -21,8 +24,8 @@ final class ConfigFactory
             host: '127.0.0.1',
             port: 8765,
             glucoseProvider: $provider,
-            libreLinkEmail: 'user@example.com',
-            libreLinkPassword: 'secret',
+            libreLinkEmail: $email,
+            libreLinkPassword: $password,
             libreLinkRegion: $region,
             libreLinkBaseUri: $baseUri,
             libreLinkPatientId: $patientId,
@@ -31,6 +34,7 @@ final class ConfigFactory
             sessionPath: $root . '/libre-session.json',
             abbottPollSeconds: 60,
             browserPollSeconds: 5,
+            authListen: $authListen,
         );
     }
 }

@@ -17,4 +17,15 @@ $poller = new App\Poller\GlucosePoller(
     persistHistory: true,
 );
 
-$poller->run($once);
+$intake = $once ? null : $app->authIntake();
+$wait = $intake === null
+    ? null
+    : static function (int $seconds) use ($intake): bool {
+        return $intake->wait($seconds);
+    };
+
+try {
+    $poller->run($once, $wait);
+} finally {
+    $intake?->close();
+}

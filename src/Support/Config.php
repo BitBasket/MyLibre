@@ -32,6 +32,7 @@ final class Config
         public readonly string $pollStatePath = '',
         public readonly int $bucketSeconds = 300,
         public readonly string $publicPath = '',
+        public readonly string $authListen = '',
     ) {
     }
 
@@ -67,6 +68,7 @@ final class Config
             publicPath: self::absolutePath($root, Env::get('PUBLIC_PATH', 'public') ?? 'public'),
             abbottPollSeconds: self::positiveInt('ABBOTT_POLL_SECONDS', Env::get('ABBOTT_POLL_SECONDS', '60'), 60),
             browserPollSeconds: self::positiveInt('BROWSER_POLL_SECONDS', Env::get('BROWSER_POLL_SECONDS', '5'), 5),
+            authListen: Env::get('AUTH_LISTEN', '127.0.0.1:8766') ?? '127.0.0.1:8766',
         );
     }
 

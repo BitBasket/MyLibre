@@ -6,6 +6,8 @@ namespace App\Support;
 
 use App\Contract\GlucoseProvider;
 use App\Export\BucketWriter;
+use App\Http\AuthIntakeHandler;
+use App\Http\AuthIntakeServer;
 use App\LibreLink\LibreLinkUpProvider;
 use App\LibreLink\SessionStore;
 use App\Mock\MockGlucoseProvider;
@@ -123,10 +125,6 @@ final class App
             throw new InvalidArgumentException('Unknown GLUCOSE_PROVIDER: ' . $this->config->glucoseProvider);
         }
 
-        if ($this->config->libreLinkEmail === '' || $this->config->libreLinkPassword === '') {
-            throw new InvalidArgumentException('LIBRELINK_EMAIL and LIBRELINK_PASSWORD are required for librelinkup.');
-        }
-
         return $this->provider = new LibreLinkUpProvider(
             $this->config,
             $this->logger,
@@ -136,6 +134,29 @@ final class App
                 $this->crypto(),
                 $this->config->unlockPassphrase,
             ),
+        );
+    }
+
+    /**
+     * Loopback HTTP intake for a dashboard LibreLinkUp login. Null when
+     * AUTH_LISTEN is unset or the provider is not LibreLinkUp. Bind is
+     * loopback-only; nginx proxies /api/librelink/ to it.
+     */
+    public function authIntake(): ?AuthIntakeServer
+    {
+        if ($this->config->authListen === '' || !$this->config->isLibreLinkUpProvider()) {
+            return null;
+        }
+
+        $provider = $this->provider();
+        if (!$provider instanceof LibreLinkUpProvider) {
+            return null;
+        }
+
+        return AuthIntakeServer::bind(
+            $this->config->authListen,
+            new AuthIntakeHandler($provider, $this->logger),
+            $this->logger,
         );
     }
 }

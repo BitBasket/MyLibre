@@ -16,7 +16,7 @@ final class ConfigTest extends TestCase
         mkdir($root);
         file_put_contents($root . '/.env', "HOST=127.0.0.1\nPORT=8765\nGLUCOSE_PROVIDER=mock\nSQLITE_PATH=data/glucose.sqlite\n");
 
-        foreach (['HOST', 'PORT', 'GLUCOSE_PROVIDER', 'SQLITE_PATH', 'SESSION_PATH'] as $key) {
+        foreach (['HOST', 'PORT', 'GLUCOSE_PROVIDER', 'SQLITE_PATH', 'SESSION_PATH', 'AUTH_LISTEN'] as $key) {
             putenv($key);
             unset($_ENV[$key]);
         }
@@ -27,5 +27,36 @@ final class ConfigTest extends TestCase
         $this->assertTrue($config->bindsLocalhostOnly());
         $this->assertTrue($config->isMockProvider());
         $this->assertSame($root . '/data/glucose.sqlite', $config->sqlitePath);
+        $this->assertSame('127.0.0.1:8766', $config->authListen);
+    }
+
+    public function testAuthListen(): void
+    {
+        $root = sys_get_temp_dir() . '/mylibre-config-' . uniqid('', true);
+        mkdir($root);
+        file_put_contents($root . '/.env', "AUTH_LISTEN=127.0.0.1:8766\n");
+        Env::reset();
+        foreach (['AUTH_LISTEN'] as $key) {
+            putenv($key);
+            unset($_ENV[$key]);
+        }
+
+        $config = Config::fromEnv($root);
+        $this->assertSame('127.0.0.1:8766', $config->authListen);
+    }
+
+    public function testEmptyAuthListenDisablesIntake(): void
+    {
+        $root = sys_get_temp_dir() . '/mylibre-config-' . uniqid('', true);
+        mkdir($root);
+        file_put_contents($root . '/.env', "AUTH_LISTEN=\n");
+        Env::reset();
+        foreach (['AUTH_LISTEN'] as $key) {
+            putenv($key);
+            unset($_ENV[$key]);
+        }
+
+        $config = Config::fromEnv($root);
+        $this->assertSame('', $config->authListen);
     }
 }

@@ -1,4 +1,4 @@
-const CACHE = 'mylibre-static-v20';
+const CACHE = 'mylibre-static-v21';
 const ASSETS = [
     '/',
     '/index.html',
@@ -30,6 +30,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
     if (url.origin !== location.origin) {
+        return;
+    }
+
+    if (url.pathname.startsWith('/api/')) {
         return;
     }
 

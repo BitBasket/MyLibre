@@ -104,7 +104,8 @@ That command snapshots the live SQLite file (including WAL, without stopping v1)
 | Variable | Purpose |
 | --- | --- |
 | `GLUCOSE_PROVIDER` | `mock` (default) or `librelinkup` |
-| `LIBRELINK_EMAIL` / `LIBRELINK_PASSWORD` | LibreLinkUp login. Never sent to the browser. |
+| `LIBRELINK_EMAIL` / `LIBRELINK_PASSWORD` | Optional LibreLinkUp login. Prefer the dashboard connect form (see `AUTH_LISTEN`) so the password is never stored. Never sent to the browser except over the login POST. |
+| `AUTH_LISTEN` | Loopback `host:port` for the poller's login intake. Default `127.0.0.1:8766`. `composer serve` (`public/router.php`) and host nginx proxy `/api/librelink/` here. Set `AUTH_LISTEN=` (empty) to disable. `--once` (Lambda shape) does not listen. |
 | `LIBRELINK_REGION` | `AUTO` (preferred) or a region code such as `AE`, `EU`, `EU2` |
 | `LIBRELINK_BASE_URI` | Optional full override, must be usable as a RESTSpeaker base URI |
 | `LIBRELINK_PATIENT_ID` | Optional when more than one connection exists |
@@ -159,6 +160,8 @@ Or serve `public/` with nginx:
 ```bash
 ./run-nginx.sh
 ```
+
+The long-running poller binds `AUTH_LISTEN` (loopback HTTP, not a WebSocket). `composer serve` proxies `/api/librelink/` to that port via `public/router.php`. Host nginx can do the same as in `nginx/default.conf`. Docker nginx from `./run-nginx.sh` cannot reach a loopback-only intake — use `composer serve` when you need the connect form. The dashboard posts email/password once; the poller logs into Abbott, writes `data/libre-session.json.asc`, and drops the password. When the session file is missing or the token expires, `status.json.asc` sets `loginRequired` and the connect form comes back. `php bin/poll-glucose.php --once` does not listen — that is the serverless invocation shape.
 
 Open http://127.0.0.1:8765 (or the URL printed by `run-nginx.sh`).
 

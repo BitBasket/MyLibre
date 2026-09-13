@@ -231,6 +231,56 @@ body:not(.locked) .unlock-gate {
     color: var(--bad);
 }
 
+.librelink-login {
+    margin: 1rem 0 0;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 1.1rem 1.2rem 1.3rem;
+}
+
+.librelink-login h2 {
+    margin: 0;
+    font-size: 1rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.librelink-login label {
+    display: block;
+    margin: 0.8rem 0 0.3rem;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.librelink-login input {
+    width: 100%;
+    box-sizing: border-box;
+    background: #081218;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.55rem 0.7rem;
+    font: inherit;
+}
+
+.librelink-login input:focus {
+    outline: 2px solid #2a8f84;
+    border-color: #2a8f84;
+}
+
+.librelink-login button[type="submit"] {
+    margin-top: 1rem;
+    background: #1a6b62;
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 650;
+}
+
 .hidden {
     display: none;
 }

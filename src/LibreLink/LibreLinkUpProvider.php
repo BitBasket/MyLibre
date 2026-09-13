@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\LibreLink;
 
 use App\Contract\GlucoseProvider;
+use App\Contract\LibreLinkAuthenticator;
 use App\DTO\GlucoseReadingDTO;
 use App\DTO\LibreLinkUpSessionDTO;
 use App\Support\Config;
@@ -14,7 +15,7 @@ use PHPExperts\RESTSpeaker\NoAuth;
 use PHPExperts\RESTSpeaker\RESTAuthDriver;
 use PHPExperts\RESTSpeaker\RESTSpeaker;
 
-final class LibreLinkUpProvider implements GlucoseProvider
+final class LibreLinkUpProvider implements GlucoseProvider, LibreLinkAuthenticator
 {
     private RESTSpeaker $api;
 
@@ -24,6 +25,12 @@ final class LibreLinkUpProvider implements GlucoseProvider
     private $speakerFactory;
 
     private int $lastStatus = -1;
+
+    private string $email = '';
+
+    private string $password = '';
+
+    private string $patientId = '';
 
     public function __construct(
         private readonly Config $config,
@@ -35,6 +42,36 @@ final class LibreLinkUpProvider implements GlucoseProvider
             return new RESTSpeaker($auth, LibreLinkUpEndpoints::normalizeBaseUri($baseUri));
         };
         $this->api = ($this->speakerFactory)(new NoAuth(), $this->initialBaseUri());
+        $this->email = $this->config->libreLinkEmail;
+        $this->password = $this->config->libreLinkPassword;
+        $this->patientId = $this->config->libreLinkPatientId;
+    }
+
+    public function login(string $email, string $password, ?string $patientId = null): LibreLinkUpSessionDTO
+    {
+        $this->email = $email;
+        $this->password = $password;
+        if ($patientId !== null) {
+            $this->patientId = $patientId;
+        }
+
+        return $this->authenticate();
+    }
+
+    public function hasSession(): bool
+    {
+        if ($this->session !== null && !$this->isExpired($this->session)) {
+            return true;
+        }
+
+        $cached = $this->sessions->load();
+
+        return $cached !== null && !$this->isExpired($cached);
+    }
+
+    public function needsInteractiveLogin(): bool
+    {
+        return !$this->hasSession() && ($this->email === '' || $this->password === '');
     }
 
     public function authenticate(): LibreLinkUpSessionDTO
@@ -112,7 +149,7 @@ final class LibreLinkUpProvider implements GlucoseProvider
             );
         }
 
-        $configured = $this->config->libreLinkPatientId;
+        $configured = $this->patientId;
         foreach ($connections as $connection) {
             $row = $this->asObject($connection);
             $patientId = (string) ($this->property($row, 'patientId') ?? '');
@@ -149,9 +186,10 @@ final class LibreLinkUpProvider implements GlucoseProvider
         $baseUri = LibreLinkUpEndpoints::normalizeBaseUri($baseUri);
         $this->api = ($this->speakerFactory)(new NoAuth(), $baseUri);
 
+        [$email, $password] = $this->credentials();
         $payload = $this->send('POST', LibreLinkUpEndpoints::LOGIN, [
-            'email' => $this->config->libreLinkEmail,
-            'password' => $this->config->libreLinkPassword,
+            'email' => $email,
+            'password' => $password,
         ], [
             'headers' => LibreLinkUpEndpoints::clientHeaders($this->config->libreLinkClientVersion),
         ]);
@@ -199,8 +237,20 @@ final class LibreLinkUpProvider implements GlucoseProvider
             'baseUri' => $baseUri,
             'accountId' => $accountId !== '' ? $accountId : null,
             'expiresAt' => $expiresAt,
-            'patientId' => $this->config->libreLinkPatientId !== '' ? $this->config->libreLinkPatientId : null,
+            'patientId' => $this->patientId !== '' ? $this->patientId : null,
         ]);
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function credentials(): array
+    {
+        if ($this->email === '' || $this->password === '') {
+            throw new LibreLinkAuthException('LibreLinkUp login required');
+        }
+
+        return [$this->email, $this->password];
     }
 
     private function request(string $method, string $path, bool $allowReauth): object

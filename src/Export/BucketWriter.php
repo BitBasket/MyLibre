@@ -41,7 +41,7 @@ final class BucketWriter
         $this->atomicWrite('current', ReadingPresenter::stored($latest));
     }
 
-    public function writeStatus(?int $firstReadingAt, ?int $lastReadingAt): void
+    public function writeStatus(?int $firstReadingAt, ?int $lastReadingAt, bool $loginRequired = false): void
     {
         $this->atomicWrite('status', [
             'ok' => true,
@@ -52,6 +52,7 @@ final class BucketWriter
             'earliestReadingAt' => $this->iso($firstReadingAt),
             'latestReadingAt' => $this->iso($lastReadingAt),
             'browserPollSeconds' => $this->config->browserPollSeconds,
+            'loginRequired' => $loginRequired,
         ]);
     }
 

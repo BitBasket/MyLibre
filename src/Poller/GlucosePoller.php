@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Poller;
 
 use App\Contract\GlucoseProvider;
+use App\Contract\LibreLinkAuthenticator;
 use App\DTO\GlucoseReadingDTO;
 use App\Export\BucketWriter;
 use App\LibreLink\LibreLinkAuthException;
@@ -45,17 +46,42 @@ final class GlucosePoller
     ) {
     }
 
-    public function run(bool $once = false): void
+    /**
+     * @param null|callable(int): bool $wait  Sleep $seconds; return true to
+     *                                        poll immediately (e.g. a login
+     *                                        arrived on the intake socket).
+     */
+    public function run(bool $once = false, ?callable $wait = null): void
     {
-        $this->export(null, $this->state->load());
+        $this->export(null, $this->state->load(), $this->needsInteractiveLogin());
         $delay = $this->intervalSeconds;
+        $wait ??= static function (int $seconds): bool {
+            sleep($seconds);
+
+            return false;
+        };
 
         while (true) {
+            if ($this->needsInteractiveLogin()) {
+                $this->logger->error('LibreLinkUp login required');
+                $this->exportLoginRequired();
+                if ($once) {
+                    return;
+                }
+                if ($wait($delay)) {
+                    $delay = $this->intervalSeconds;
+                }
+
+                continue;
+            }
+
             $delay = $this->poll($delay);
             if ($once) {
                 return;
             }
-            sleep($delay);
+            if ($wait($delay)) {
+                $delay = $this->intervalSeconds;
+            }
         }
     }
 
@@ -125,6 +151,7 @@ final class GlucosePoller
             return $this->intervalSeconds;
         } catch (LibreLinkAuthException $e) {
             $this->logger->error($e->getMessage());
+            $this->exportLoginRequired();
 
             return $this->backoff($delay, 30, 900);
         } catch (LibreLinkRateLimitException $e) {
@@ -271,11 +298,27 @@ final class GlucosePoller
         }
     }
 
-    private function export(?GlucoseReadingDTO $latest, PollState $state): void
+    private function needsInteractiveLogin(): bool
+    {
+        return $this->provider instanceof LibreLinkAuthenticator
+            && $this->provider->needsInteractiveLogin();
+    }
+
+    private function exportLoginRequired(): void
+    {
+        try {
+            $state = $this->state->load();
+            $this->writer->writeStatus($state->firstReadingAt, $state->latest(), loginRequired: true);
+        } catch (Throwable $e) {
+            $this->logger->error('Dashboard snapshot failed: ' . $e->getMessage());
+        }
+    }
+
+    private function export(?GlucoseReadingDTO $latest, PollState $state, bool $loginRequired = false): void
     {
         try {
             $this->writer->writeCurrent($latest);
-            $this->writer->writeStatus($state->firstReadingAt, $state->latest());
+            $this->writer->writeStatus($state->firstReadingAt, $state->latest(), $loginRequired);
         } catch (Throwable $e) {
             $this->logger->error('Dashboard snapshot failed: ' . $e->getMessage());
         }

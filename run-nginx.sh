@@ -80,15 +80,20 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     docker rm "$CONTAINER_NAME" >/dev/null 2>&1
 fi
 
-# Run nginx container
+# Run nginx container.
+# Host networking is required so /api/librelink/ can reach the poller's
+# loopback AUTH_LISTEN (127.0.0.1:8766). -p is ignored with --network host,
+# so the listen port is rewritten to $PORT.
 echo "Starting nginx on port $PORT..."
 DOCKER_ARGS=(
     --name "$CONTAINER_NAME"
-    -p "127.0.0.1:$PORT:80"
+    --network host
     -v "$PUBLIC_DIR:/usr/share/nginx/html:ro"
 )
 if [ -f "$NGINX_CONF" ]; then
-    DOCKER_ARGS+=(-v "$NGINX_CONF:/etc/nginx/conf.d/default.conf:ro")
+    RUNTIME_CONF="${TMPDIR:-/tmp}/mylibre-nginx-${PORT}.conf"
+    sed "s/listen 80;/listen 127.0.0.1:${PORT};/" "$NGINX_CONF" > "$RUNTIME_CONF"
+    DOCKER_ARGS+=(-v "$RUNTIME_CONF:/etc/nginx/conf.d/default.conf:ro")
 fi
 docker run -d "${DOCKER_ARGS[@]}" nginx:latest
 

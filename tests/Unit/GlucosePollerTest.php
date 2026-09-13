@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Unit;
 
 use App\Contract\GlucoseProvider;
+use App\Contract\LibreLinkAuthenticator;
 use App\DTO\GlucoseReadingDTO;
 use App\DTO\LibreLinkUpSessionDTO;
 use App\Export\BucketWriter;
@@ -77,6 +78,57 @@ final class GlucosePollerTest extends TestCase
         ksort($readings);
 
         return array_values($readings);
+    }
+
+    public function testWaitReturningTruePollsAgainWhenNotOnce(): void
+    {
+        $calls = 0;
+        $provider = new class implements GlucoseProvider {
+            public int $historyCalls = 0;
+
+            public function authenticate(): LibreLinkUpSessionDTO
+            {
+                return new LibreLinkUpSessionDTO([
+                    'token' => 't',
+                    'baseUri' => 'https://api.libreview.io/',
+                ]);
+            }
+
+            public function getCurrentReading(): GlucoseReadingDTO
+            {
+                return new GlucoseReadingDTO([
+                    'timestamp' => Carbon::now('UTC'),
+                    'glucoseMgDl' => 100,
+                    'trend' => 'stable',
+                    'trendArrow' => '→',
+                    'source' => 'mock',
+                ]);
+            }
+
+            public function getHistory(): array
+            {
+                $this->historyCalls++;
+
+                return [$this->getCurrentReading()];
+            }
+        };
+
+        $poller = $this->poller($provider, fopen('php://memory', 'ab'));
+        try {
+            $poller->run(false, function () use (&$calls): bool {
+                $calls++;
+                if ($calls >= 2) {
+                    throw new \RuntimeException('stop');
+                }
+
+                return true;
+            });
+            $this->fail('expected stop');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('stop', $e->getMessage());
+        }
+        $this->assertSame(2, $calls);
+        $this->assertSame(2, $provider->historyCalls);
     }
 
     /**
@@ -333,6 +385,53 @@ final class GlucosePollerTest extends TestCase
         $poller = $this->poller($provider, fopen('php://memory', 'ab'), null, false);
         $this->assertSame(60, $poller->poll(30));
         $this->assertSame(120, $poller->poll(60));
+        $status = json_decode((string) file_get_contents($this->directory . '/status.json'), true);
+        $this->assertTrue($status['loginRequired']);
+    }
+
+    public function testOnceStopsWhenInteractiveLoginIsRequired(): void
+    {
+        $provider = new class implements GlucoseProvider, LibreLinkAuthenticator {
+            public int $historyCalls = 0;
+
+            public function login(string $email, string $password, ?string $patientId = null): LibreLinkUpSessionDTO
+            {
+                throw new LibreLinkAuthException('LibreLinkUp login required');
+            }
+
+            public function hasSession(): bool
+            {
+                return false;
+            }
+
+            public function needsInteractiveLogin(): bool
+            {
+                return true;
+            }
+
+            public function authenticate(): LibreLinkUpSessionDTO
+            {
+                throw new LibreLinkAuthException('LibreLinkUp login required');
+            }
+
+            public function getCurrentReading(): GlucoseReadingDTO
+            {
+                throw new LibreLinkAuthException('LibreLinkUp login required');
+            }
+
+            public function getHistory(): array
+            {
+                $this->historyCalls++;
+
+                throw new LibreLinkAuthException('LibreLinkUp login required');
+            }
+        };
+
+        $this->poller($provider, fopen('php://memory', 'ab'), null, false)->run(once: true);
+
+        $this->assertSame(0, $provider->historyCalls);
+        $status = json_decode((string) file_get_contents($this->directory . '/status.json'), true);
+        $this->assertTrue($status['loginRequired']);
     }
 
     public function testRateLimitUsesRetryAfter(): void
@@ -389,6 +488,7 @@ final class GlucosePollerTest extends TestCase
         $status = json_decode((string) file_get_contents($this->directory . '/status.json'), true);
         $this->assertSame(174, $current['glucoseMgDl']);
         $this->assertSame(300, $status['bucketSeconds']);
+        $this->assertFalse($status['loginRequired']);
     }
 
     public function testClockJumpWritesCatchUpIntoSensorTimeBuckets(): void

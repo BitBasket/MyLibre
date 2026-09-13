@@ -145,6 +145,60 @@ final class LibreLinkUpProviderTest extends TestCase
         $this->assertSame('llu/connections/patient-1/graph', $this->path($history[3]));
     }
 
+    public function testLoginOverridesConfigCredentials(): void
+    {
+        $history = [];
+        $provider = $this->provider([
+            $this->jsonResponse($this->fixture('login-success.json')),
+        ], $history);
+
+        $provider->login('posted@example.com', 'posted-secret');
+
+        $body = (string) $history[0]['request']->getBody();
+        $this->assertStringContainsString('posted@example.com', $body);
+        $this->assertStringContainsString('posted-secret', $body);
+        $this->assertStringNotContainsString('user@example.com', $body);
+        $this->assertTrue($provider->hasSession());
+    }
+
+    public function testEmptyPasswordWithoutSessionRequiresLogin(): void
+    {
+        $history = [];
+        $tmp = sys_get_temp_dir() . '/mylibre-session-' . uniqid('', true);
+        @mkdir($tmp, 0700, true);
+        $provider = $this->provider([], $history, ConfigFactory::make($tmp, email: '', password: ''));
+
+        $this->assertFalse($provider->hasSession());
+        $this->assertTrue($provider->needsInteractiveLogin());
+        $this->expectException(LibreLinkAuthException::class);
+        $this->expectExceptionMessage('LibreLinkUp login required');
+        $provider->authenticate();
+    }
+
+    public function testCachedSessionDoesNotNeedPassword(): void
+    {
+        $history = [];
+        $tmp = sys_get_temp_dir() . '/mylibre-session-' . uniqid('', true);
+        @mkdir($tmp, 0700, true);
+        file_put_contents($tmp . '/libre-session.json', json_encode([
+            'token' => 'test-token',
+            'baseUri' => 'https://api.libreview.io/',
+            'accountId' => '11111111-1111-1111-1111-111111111111',
+            'patientId' => 'patient-1',
+        ], JSON_THROW_ON_ERROR));
+        $provider = $this->provider(
+            [$this->jsonResponse($this->fixture('graph.json'))],
+            $history,
+            ConfigFactory::make($tmp, email: '', password: ''),
+        );
+
+        $reading = $provider->getCurrentReading();
+
+        $this->assertSame(174, $reading->glucoseMgDl);
+        $this->assertCount(1, $history);
+        $this->assertSame('llu/connections/patient-1/graph', $this->path($history[0]));
+    }
+
     public function testReauthenticatesAfter401OnGraph(): void
     {
         $history = [];
@@ -164,10 +218,13 @@ final class LibreLinkUpProviderTest extends TestCase
      * @param list<Response> $responses
      * @param list<array<string, mixed>> $history
      */
-    private function provider(array $responses, array &$history): LibreLinkUpProvider
+    private function provider(array $responses, array &$history, ?\App\Support\Config $config = null): LibreLinkUpProvider
     {
-        $tmp = sys_get_temp_dir() . '/mylibre-session-' . uniqid('', true);
-        @mkdir($tmp, 0700, true);
+        if ($config === null) {
+            $tmp = sys_get_temp_dir() . '/mylibre-session-' . uniqid('', true);
+            @mkdir($tmp, 0700, true);
+            $config = ConfigFactory::make($tmp);
+        }
         $mock = new MockHandler($responses);
         $stack = HandlerStack::create($mock);
         $stack->push(Middleware::history($history));
@@ -185,9 +242,9 @@ final class LibreLinkUpProviderTest extends TestCase
         $logger = new Logger(fopen('php://memory', 'ab'));
 
         return new LibreLinkUpProvider(
-            ConfigFactory::make($tmp),
+            $config,
             $logger,
-            new SessionStore($tmp . '/libre-session.json', $logger),
+            new SessionStore($config->sessionPath, $logger),
             $factory,
         );
     }

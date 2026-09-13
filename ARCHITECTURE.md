@@ -2,7 +2,7 @@
 
 This document describes how the glucose poller actually works in the current tree. It is the backend half of the dashboard: a long-running PHP process that talks to LibreLinkUp (or a mock), then writes static encrypted files under `public/` for a file server to serve. The browser is a separate pass.
 
-The poller is a **write-only relay**. It never reads a glucose value back from disk. It does not run an HTTP API. Abbott field names never leave `src/LibreLink/`.
+The poller is a **write-only relay**. It never reads a glucose value back from disk. Abbott field names never leave `src/LibreLink/`. The only HTTP it serves is the loopback `AUTH_LISTEN` intake (`/api/librelink/status` and `/api/librelink/login`) so the dashboard can hand it a LibreLinkUp login when no session token is cached.
 
 ```text
 Libre 2  →  LibreLink EG (phone, BLE)
@@ -30,9 +30,9 @@ The official app remains the Bluetooth receiver. This process never talks to the
    - `pollState()` — `PollStateStore` at `data/poll-state.json`
    - `bucketWriter()` — `BucketWriter` targeting `public/`, encrypting to the recipient PGP key
 4. Construct `GlucosePoller` with `ABBOTT_POLL_SECONDS` (default 60) and `persistHistory: true`.
-5. `$poller->run($once)` where `$once` is true if `--once` is on the argv.
+5. Bind `AUTH_LISTEN` (unless empty, `--once`, or the provider is not LibreLinkUp) and `$poller->run($once)` where `$once` is true if `--once` is on the argv.
 
-`run()` writes a first `current`/`status` snapshot from whatever is already on disk (the latest reading is `null` until the first successful poll), then loops: `poll()` → `sleep($delay)` → repeat. `--once` returns after a single `poll()`.
+`run()` writes a first `current`/`status` snapshot from whatever is already on disk (the latest reading is `null` until the first successful poll). If LibreLinkUp has no session and no env credentials, it sets `loginRequired` on `status` and waits on the intake socket instead of polling. Otherwise it loops: `poll()` → wait on the intake socket for `$delay` seconds → repeat. `--once` returns after a single `poll()` (or immediately when interactive login is required).
 
 Equivalent: `composer poll`, or the systemd user unit `systemd/libre-glucose.service`.
 
@@ -50,7 +50,7 @@ Equivalent: `composer poll`, or the systemd user unit `systemd/libre-glucose.ser
 | `bucketWriter()` | `BucketWriter` writing into `publicPath` (default `public/`), using `recipientCrypto()`, `bucketSeconds` (default 300) |
 | `provider()` | `mock` → `MockGlucoseProvider`. `librelinkup` → `LibreLinkUpProvider` with an encrypted `SessionStore`. |
 
-Unknown `GLUCOSE_PROVIDER` values fail at boot. LibreLinkUp also requires `LIBRELINK_EMAIL` and `LIBRELINK_PASSWORD`.
+Unknown `GLUCOSE_PROVIDER` values fail at boot. LibreLinkUp credentials are optional in `.env`: the dashboard connect form can post them to `AUTH_LISTEN`. Without a session file and without env credentials the poller waits for that form instead of calling Abbott.
 
 The live poller does **not** construct `EncryptedGlucoseRepository`, `SQLiteGlucoseRepository`, or anything under `src/Database/`. Those exist for one-shot migrations and tests.
 
@@ -153,7 +153,7 @@ All written by `BucketWriter`. Atomic: temp file next to the destination, `renam
 | Path | Role | Payload |
 | --- | --- | --- |
 | `current.json.asc` | Latest reading, display-only. Not the history store. | `ReadingPresenter::stored` — four fields, or all-null on startup / failed export |
-| `status.json.asc` | Schedule shape for the browser. Not a file listing. | `ok`, `encrypted`, `schemaVersion` **2**, `provider`, `bucketSeconds`, `earliestReadingAt`, `latestReadingAt` (ISO-8601 Zulu), `browserPollSeconds` |
+| `status.json.asc` | Schedule shape for the browser. Not a file listing. | `ok`, `encrypted`, `schemaVersion` **2**, `provider`, `bucketSeconds`, `earliestReadingAt`, `latestReadingAt` (ISO-8601 Zulu), `browserPollSeconds`, `loginRequired` |
 | `b/<bucket>.json.asc` | History batch. `bucket` is the Unix epoch of the window start. | `{ schemaVersion: 1, bucket, readings: [...] }` |
 
 A missing `b/<bucket>.json.asc` is a 404. There is no manifest, no index, no acknowledgement endpoint. The browser is supposed to compute `bucket` from the clock (and from `earliestReadingAt` / `latestReadingAt` / `bucketSeconds` in `status`).

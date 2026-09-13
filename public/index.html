@@ -9,7 +9,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
-    <link rel="stylesheet" href="/app.css?v=18">
+    <link rel="stylesheet" href="/app.css?v=19">
 </head>
 <body class="locked">
     <section id="unlock-gate" class="unlock-gate" aria-labelledby="unlock-title">
@@ -76,6 +76,21 @@
 
         <section id="banner" class="banner hidden" role="status"></section>
 
+        <section id="librelink-login" class="librelink-login hidden">
+            <h2>Connect LibreLinkUp</h2>
+            <p class="muted">The poller keeps an encrypted session token, not your password. Sign in when asked; the password stays in the poller only long enough to log in to Abbott.</p>
+            <form id="librelink-form" autocomplete="on">
+                <label for="librelink-email">Email</label>
+                <input id="librelink-email" name="email" type="email" autocomplete="username" required autocapitalize="off" spellcheck="false">
+                <label for="librelink-password">Password</label>
+                <input id="librelink-password" name="password" type="password" autocomplete="current-password" required>
+                <label for="librelink-patient">Patient ID (optional)</label>
+                <input id="librelink-patient" name="patient" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+                <p id="librelink-error" class="unlock-error hidden" role="alert"></p>
+                <button type="submit" id="librelink-btn">Connect</button>
+            </form>
+        </section>
+
         <section class="current" aria-live="polite">
             <p id="value" class="value">--</p>
             <p class="unit">mg/dL</p>
@@ -111,6 +126,6 @@
     <script src="/vendor/chart.umd.min.js"></script>
     <script src="/vendor/openpgp.min.js"></script>
     <script src="/pgp.js?v=17"></script>
-    <script src="/app.js?v=19"></script>
+    <script src="/app.js?v=21"></script>
 </body>
 </html>

@@ -26,6 +26,13 @@
     const trendEl = document.getElementById('trend');
     const ageEl = document.getElementById('age');
     const bannerEl = document.getElementById('banner');
+    const librelinkLogin = document.getElementById('librelink-login');
+    const librelinkForm = document.getElementById('librelink-form');
+    const librelinkEmail = document.getElementById('librelink-email');
+    const librelinkPassword = document.getElementById('librelink-password');
+    const librelinkPatient = document.getElementById('librelink-patient');
+    const librelinkError = document.getElementById('librelink-error');
+    const librelinkBtn = document.getElementById('librelink-btn');
     const sourceEl = document.getElementById('source-line');
     const unlockGate = document.getElementById('unlock-gate');
     const unlockForm = document.getElementById('unlock-form');
@@ -1127,10 +1134,38 @@
         }
     }
 
+    function showLibreLinkError(message) {
+        librelinkError.textContent = message;
+        librelinkError.classList.toggle('hidden', !message);
+    }
+
+    async function syncLibreLinkLogin(snapshotLoginRequired) {
+        try {
+            const response = await fetchLive('/api/librelink/status');
+            if (response.status === 404) {
+                librelinkLogin.classList.toggle('hidden', !snapshotLoginRequired);
+                return;
+            }
+            if (!response.ok) {
+                librelinkLogin.classList.toggle('hidden', !snapshotLoginRequired);
+                return;
+            }
+            const status = await response.json();
+            const authenticated = !!status.authenticated;
+            librelinkLogin.classList.toggle('hidden', authenticated);
+            if (authenticated) {
+                showLibreLinkError('');
+            }
+        } catch (error) {
+            librelinkLogin.classList.toggle('hidden', !snapshotLoginRequired);
+        }
+    }
+
     async function refresh() {
         if (!vaultKeys) {
             return;
         }
+        let snapshotLoginRequired = false;
         try {
             const [currentRes, statusRes] = await Promise.all([
                 fetchLive('/current.json.asc'),
@@ -1142,6 +1177,7 @@
             offline = false;
             const current = await readSnapshot(currentRes);
             const status = isOkResponse(statusRes) ? await readSnapshot(statusRes) : {};
+            snapshotLoginRequired = !!status.loginRequired;
             rewindForRestore(current);
             const readings = mergedReadings([...(await loadHistory(status)), current]);
             renderCurrent(current);
@@ -1174,6 +1210,7 @@
                 renderChart(cachedHistory);
             }
         }
+        await syncLibreLinkLogin(snapshotLoginRequired);
     }
 
     buttons.forEach((button) => {
@@ -1236,6 +1273,9 @@
 
     function lock(forgetSaved) {
         vaultKeys = null;
+        librelinkLogin.classList.add('hidden');
+        librelinkPassword.value = '';
+        showLibreLinkError('');
         if (refreshTimer) {
             clearInterval(refreshTimer);
             refreshTimer = null;
@@ -1395,6 +1435,35 @@
         } catch (error) {
             showNewKeyError(error.message || String(error));
             refreshContinueState();
+        }
+    });
+
+    librelinkForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        showLibreLinkError('');
+        librelinkBtn.disabled = true;
+        try {
+            const response = await fetch('/api/librelink/login', {
+                method: 'POST',
+                cache: 'no-store',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: librelinkEmail.value.trim(),
+                    password: librelinkPassword.value,
+                    patientId: librelinkPatient.value.trim(),
+                }),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok || !payload.ok) {
+                throw new Error(payload.error || 'authentication failed');
+            }
+            librelinkPassword.value = '';
+            librelinkLogin.classList.add('hidden');
+            refresh();
+        } catch (error) {
+            showLibreLinkError(error.message || 'authentication failed');
+        } finally {
+            librelinkBtn.disabled = false;
         }
     });
 

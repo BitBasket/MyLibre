@@ -61,6 +61,7 @@ final class BucketWriterTest extends TestCase
         $this->assertSame(300, $status['bucketSeconds']);
         $this->assertSame(gmdate('Y-m-d\TH:i:s\Z', 1756978800), $status['earliestReadingAt']);
         $this->assertSame(gmdate('Y-m-d\TH:i:s\Z', 1756979400), $status['latestReadingAt']);
+        $this->assertFalse($status['loginRequired']);
     }
 
     public function testEmptyBatchWritesNothing(): void
