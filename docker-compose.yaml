@@ -10,7 +10,8 @@
 #
 # The poller container also runs the PHP API (loopback AUTH_LISTEN plus
 # /api/keys enrollment). Caddy serves ./public and reverse-proxies /api/*
-# to that API. ./data holds the encrypted store, session, and PGP keys.
+# to that API. ./data holds the PGP keys, the encrypted LibreLinkUp session,
+# and the poll-state file.
 
 name: mylibre
 

@@ -1,7 +1,7 @@
 (() => {
     const DB_NAME = 'mylibre-pgp';
     const STORE = 'keys';
-    const KEY_ID = 'device';
+    const keyId = 'device';
 
     function openDb() {
         return new Promise((resolve, reject) => {
@@ -23,7 +23,7 @@
             const tx = db.transaction(STORE, 'readwrite');
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error);
-            tx.objectStore(STORE).put({ publicArmored, privateArmored }, KEY_ID);
+            tx.objectStore(STORE).put({ publicArmored, privateArmored }, keyId);
         });
         db.close();
     }
@@ -32,7 +32,7 @@
         const db = await openDb();
         const value = await new Promise((resolve, reject) => {
             const tx = db.transaction(STORE, 'readonly');
-            const request = tx.objectStore(STORE).get(KEY_ID);
+            const request = tx.objectStore(STORE).get(keyId);
             request.onsuccess = () => resolve(request.result || null);
             request.onerror = () => reject(request.error);
         });
@@ -46,7 +46,7 @@
             const tx = db.transaction(STORE, 'readwrite');
             tx.oncomplete = () => resolve();
             tx.onerror = () => reject(tx.error);
-            tx.objectStore(STORE).delete(KEY_ID);
+            tx.objectStore(STORE).delete(keyId);
         });
         db.close();
     }

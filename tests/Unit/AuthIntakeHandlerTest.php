@@ -78,6 +78,14 @@ final class AuthIntakeHandlerTest extends TestCase
         $this->assertSame(404, $status);
     }
 
+    public function testTenantScopedLoginIsNotRouted(): void
+    {
+        $handler = $this->handler();
+
+        [$status] = $handler->handle('POST', '/t/6QKnU3XheQMk3E6Vq1B4l6/api/librelink/login', '{}');
+        $this->assertSame(404, $status);
+    }
+
     private function handler(?LibreLinkAuthenticator $auth = null): AuthIntakeHandler
     {
         return new AuthIntakeHandler(

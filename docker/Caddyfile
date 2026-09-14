@@ -14,11 +14,19 @@
 		}
 	}
 
+	# Plaintext snapshots are never served, even if an older deployment left
+	# one on disk. Only the .asc ciphertext is reachable. This must precede the
+	# catch-all file_server handle block below.
+	@plaintext path_regexp plaintext (?i)^/(current|status|history|history-[0-9]{8}|b/[0-9]+)\.json$
+	handle @plaintext {
+		respond 404
+	}
+
 	handle {
 		file_server
 	}
 
-	@snapshots path_regexp snapshots ^/(current|status|history-[0-9]{8})\.json(\.asc)?$
+	@snapshots path_regexp snapshots ^/(current|status|history-[0-9]{8}|b/[0-9]+)\.json(\.asc)?$
 	header @snapshots Cache-Control "no-store"
 	header @snapshots Content-Type "text/plain; charset=utf-8"
 

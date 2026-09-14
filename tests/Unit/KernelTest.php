@@ -68,9 +68,7 @@ final class KernelTest extends TestCase
 
     public function testLoginPostWithoutHttpsIsForbidden(): void
     {
-        $dir = sys_get_temp_dir() . '/mylibre-kernel-' . uniqid('', true);
-        mkdir($dir);
-        $kernel = new Kernel($dir, '');
+        $kernel = new Kernel($this->tempDir(), '');
         $result = $kernel->handle([
             'REQUEST_METHOD' => 'POST',
             'REQUEST_URI' => '/api/librelink/login',
@@ -88,9 +86,7 @@ final class KernelTest extends TestCase
 
     public function testStatusDoesNotRequireHttps(): void
     {
-        $dir = sys_get_temp_dir() . '/mylibre-kernel-' . uniqid('', true);
-        mkdir($dir);
-        $kernel = new Kernel($dir, '');
+        $kernel = new Kernel($this->tempDir(), '');
         $result = $kernel->handle([
             'REQUEST_METHOD' => 'GET',
             'REQUEST_URI' => '/api/librelink/status',
@@ -102,11 +98,37 @@ final class KernelTest extends TestCase
         $this->assertStringContainsString('not found', $result['body']);
     }
 
+    public function testSelfHostDoesNotCreateTenants(): void
+    {
+        $kernel = new Kernel($this->tempDir(), '', new KeyEnrollmentHandler(''));
+        $result = $kernel->handle([
+            'REQUEST_METHOD' => 'POST',
+            'REQUEST_URI' => '/api/tenants',
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_HOST' => '127.0.0.1:8765',
+        ], '{}');
+
+        $this->assertSame(404, $result['status']);
+    }
+
+    public function testKeysEndpointWithoutHandlerIs404(): void
+    {
+        $kernel = new Kernel($this->tempDir(), '');
+        $result = $kernel->handle([
+            'REQUEST_METHOD' => 'GET',
+            'REQUEST_URI' => '/api/keys',
+            'REMOTE_ADDR' => '127.0.0.1',
+            'HTTP_HOST' => '127.0.0.1:8765',
+        ], '');
+
+        $this->assertSame(404, $result['status']);
+    }
+
     public function testKeyEnrollmentPostWithoutHttpsIsForbidden(): void
     {
-        $dir = sys_get_temp_dir() . '/mylibre-kernel-' . uniqid('', true);
-        mkdir($dir);
-        $kernel = new Kernel($dir, '', new KeyEnrollmentHandler($dir . '/user-public.asc'));
+        $dir = $this->tempDir();
+        $keyPath = $dir . '/user-public.asc';
+        $kernel = new Kernel($dir, '', new KeyEnrollmentHandler($keyPath));
         $result = $kernel->handle([
             'REQUEST_METHOD' => 'POST',
             'REQUEST_URI' => '/api/keys',
@@ -119,13 +141,12 @@ final class KernelTest extends TestCase
 
         $this->assertSame(403, $result['status']);
         $this->assertStringContainsString('https required', $result['body']);
-        $this->assertFileDoesNotExist($dir . '/user-public.asc');
+        $this->assertFileDoesNotExist($keyPath);
     }
 
     public function testKeyStatusDoesNotRequireHttps(): void
     {
-        $dir = sys_get_temp_dir() . '/mylibre-kernel-' . uniqid('', true);
-        mkdir($dir);
+        $dir = $this->tempDir();
         $kernel = new Kernel($dir, '', new KeyEnrollmentHandler($dir . '/user-public.asc'));
         $result = $kernel->handle([
             'REQUEST_METHOD' => 'GET',
@@ -140,9 +161,9 @@ final class KernelTest extends TestCase
 
     public function testLoopbackKeyEnrollmentReachesHandler(): void
     {
-        $dir = sys_get_temp_dir() . '/mylibre-kernel-' . uniqid('', true);
-        mkdir($dir);
-        $kernel = new Kernel($dir, '', new KeyEnrollmentHandler($dir . '/user-public.asc'));
+        $dir = $this->tempDir();
+        $keyPath = $dir . '/user-public.asc';
+        $kernel = new Kernel($dir, '', new KeyEnrollmentHandler($keyPath));
         $result = $kernel->handle([
             'REQUEST_METHOD' => 'POST',
             'REQUEST_URI' => '/api/keys',
@@ -153,14 +174,12 @@ final class KernelTest extends TestCase
 
         $this->assertSame(400, $result['status']);
         $this->assertStringContainsString('public key must be', $result['body']);
-        $this->assertFileDoesNotExist($dir . '/user-public.asc');
+        $this->assertFileDoesNotExist($keyPath);
     }
 
     public function testMissingSnapshotIsJson404(): void
     {
-        $dir = sys_get_temp_dir() . '/mylibre-kernel-' . uniqid('', true);
-        mkdir($dir);
-        $kernel = new Kernel($dir, '');
+        $kernel = new Kernel($this->tempDir(), '');
         $result = $kernel->handle([
             'REQUEST_METHOD' => 'GET',
             'REQUEST_URI' => '/current.json.asc',
@@ -168,5 +187,55 @@ final class KernelTest extends TestCase
 
         $this->assertSame(404, $result['status']);
         $this->assertStringContainsString('not_found', $result['body']);
+    }
+
+    /**
+     * A stale cleartext snapshot from an older deployment must not be served,
+     * even though it sits in the public directory.
+     */
+    public function testStalePlaintextSnapshotIsNeverServed(): void
+    {
+        $dir = $this->tempDir();
+        file_put_contents($dir . '/current.json', '{"glucoseMgDl":174}');
+        file_put_contents($dir . '/status.json', '{"ok":true}');
+        file_put_contents($dir . '/history-20260902.json', '{"glucoseMgDl":174}');
+        file_put_contents($dir . '/current.json.asc', "-----BEGIN PGP MESSAGE-----\n");
+
+        $kernel = new Kernel($dir, '');
+
+        foreach ([
+            '/current.json',
+            '/status.json',
+            '/history-20260902.json',
+            '/history.json',
+            '/CURRENT.JSON',
+            '/b/1788333000.json',
+            '/./current.json',
+            '/x/../status.json',
+            '/b/../current.json',
+        ] as $path) {
+            $result = $kernel->handle([
+                'REQUEST_METHOD' => 'GET',
+                'REQUEST_URI' => $path,
+            ], '');
+            $this->assertSame(404, $result['status'], $path . ' must not be served');
+            $this->assertStringContainsString('not_found', $result['body']);
+            $this->assertArrayNotHasKey('passthrough', $result);
+        }
+
+        // The encrypted form still passes through to the static server.
+        $encrypted = $kernel->handle([
+            'REQUEST_METHOD' => 'GET',
+            'REQUEST_URI' => '/current.json.asc',
+        ], '');
+        $this->assertTrue($encrypted['passthrough'] ?? false);
+    }
+
+    private function tempDir(): string
+    {
+        $dir = sys_get_temp_dir() . '/mylibre-kernel-' . uniqid('', true);
+        mkdir($dir, 0700, true);
+
+        return $dir;
     }
 }

@@ -1,6 +1,6 @@
 # Privacy
 
-Assumptions: a self-hosted droplet, poller run as a CLI (stderr is the terminal, not a journal unless you put it under systemd), and `PGP_USER_PUBLIC_KEY_PATH` set so published files go to the user’s public key. Abbott login secrets in `.env` are out of scope here.
+Assumptions: a self-hosted droplet, poller run as a CLI (stderr is the terminal, not a journal unless you put it under systemd), and the user’s public key at `data/keys/user-public.asc` so published files go to that user’s public key. Abbott login secrets in `.env` are out of scope here.
 
 The **user private key is not on the server**. The extra key on the droplet is a second, server-owned pair, used only so the poller can decrypt its own Abbott token file.
 
@@ -11,7 +11,7 @@ The **user private key is not on the server**. The extra key on the droplet is a
 | Health data | Glucose mg/dL, trend, sensor timestamps |
 | Identifier | Account UUID, patient id, regional host, anything that says *who* |
 | Secret | Bearer token, server PGP private key + its passphrase |
-| Identifiable health data | Health data in a context that is already one person’s (this VM, this token file, this user key). A log line `174` is not an identifier. On a single-tenant droplet it is still that user’s glucose. |
+| Identifiable health data | Health data in a context that is already one person’s (this VM, this token file, this user key). A log line `174` is not an identifier. On a single-user droplet it is still that user’s glucose. |
 
 HIPAA “PHI” is a covered-entity term. A droplet you run for yourself is usually not that. This document is about **what a disk snapshot, root SSH, or process dump can see**, not about a legal label.
 
@@ -19,15 +19,15 @@ HIPAA “PHI” is a covered-entity term. A droplet you run for yourself is usua
 
 | Artifact | Cleartext? | What’s in it | Who can read it |
 | --- | --- | --- | --- |
-| `public/current.json.asc`, `public/b/<bucket>.json.asc` | No. Encrypted to **user public key**. | Latest reading; history batches (mg/dL, trend, timestamp) | Only someone with the **user private key**. Droplet root cannot. |
+| `public/current.json.asc`, `public/b/<bucket>.json.asc` | No. Encrypted to the **user’s** public key. | Latest reading; history batches (mg/dL, trend, timestamp) | Only someone with the **user private key**. Droplet root cannot. |
 | `public/status.json.asc` | No. Same recipient. | `bucketSeconds`, earliest/latest reading times, provider name. No mg/dL. | Same as above. |
 | `data/libre-session.json.asc` | No. Encrypted to the **server** keypair from `init-pgp.php`. | Abbott **Bearer token**, expiry, regional `baseUri`, account UUID, patient id | The droplet can, because it holds that private key and `PGP_PASSPHRASE`. Not the user’s GPG key. |
 | `data/keys/private.asc` + `PGP_PASSPHRASE` | Private key is passphrase-wrapped; passphrase is on the host. | Server key, **not** the user’s | Host admin / volume snapshot. Exists so the token file can be opened again. |
-| `data/keys/user-public.asc` | Yes (it’s a public key). | Recipient for glucose files | Anyone with disk. Cannot decrypt. |
-| `data/poll-state.json` | Yes. `0600`. | ~2000 sensor timestamps + first-seen time. **No glucose values.** | Host admin. Not in `.gitignore`. |
+| `data/keys/user-public.asc` | Yes (it’s a public key). | Recipient for the user’s glucose files | Anyone with disk. Cannot decrypt. |
+| `data/poll-state.json` | Yes. `0600`. | ~2000 sensor timestamps + first-seen time. **No glucose values.** | Host admin. |
 | CLI stderr | Not a file unless you redirect it. | `Stored glucose reading N mg/dL`; sensor-loss and gap **timestamps**; Abbott **region** on login redirect | Whoever watches that terminal. Not written to disk by this code. `systemd/libre-glucose.service` *would* capture stderr in the journal if you enable it. |
 
-If `data/keys/user-public.asc` is **missing**, the poller does not publish. There is no fallback to the server key and no plaintext mode.
+The user public key at `data/keys/user-public.asc` is the sole recipient for published snapshots. There is no fallback to the server key and no plaintext mode.
 
 ## In the running process (unavoidable for a poller)
 

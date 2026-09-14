@@ -5,7 +5,12 @@
     // Default glucose targets, in mg/dL. The Settings panel overrides these per
     // browser, so every band below reads `settings` and never these defaults.
     const DEFAULT_SETTINGS = { hypoglycemic: 100, healthyGoal: 180, warning: 300 };
-    const SETTINGS_KEY = 'mylibre.settings';
+
+    function storageKey(name) {
+        return `mylibre.${name}`;
+    }
+
+    const SETTINGS_KEY = storageKey('settings');
     const RANGE_LOW = '#b71c1c';
     const RANGE_GREEN = '#3ddc97';
     const RANGE_YELLOW = '#f4c95d';
@@ -119,7 +124,7 @@
     let persistedLastV = null;
     let persistedCurrentTs = null;
     let csvPrefix = '';
-    const HISTORY_CSV_KEY = 'mylibre.h.csv';
+    const HISTORY_CSV_KEY = storageKey('h.csv');
     const COPY_CSV_LABEL = 'Copy CSV';
     let copyFlashTimer = null;
     let settings = readSettings();
@@ -443,7 +448,7 @@
             return;
         }
         try {
-            localStorage.setItem('mylibre.current', JSON.stringify({
+            localStorage.setItem(storageKey('current'), JSON.stringify({
                 glucoseMgDl: current.glucoseMgDl ?? null,
                 trend: current.trend || null,
                 trendArrow: current.trendArrow || null,
@@ -784,7 +789,7 @@
     // simply 404s (idle, gap, or pruned) and is skipped.
     async function loadHistory(status) {
         bucketSeconds = Number(status.bucketSeconds) || bucketSeconds;
-        const storedSeconds = Number(localStorage.getItem('mylibre.bucketSeconds'));
+        const storedSeconds = Number(localStorage.getItem(storageKey('bucketSeconds')));
         if (storedSeconds && storedSeconds !== bucketSeconds) {
             consumedBucket = null;
             absentBuckets.clear();
@@ -828,7 +833,7 @@
                     outcome.set(bucket, 'absent');
                     return;
                 }
-                const response = await fetchLive(`/b/${bucket}.json.asc`);
+                const response = await fetchLive(`b/${bucket}.json.asc`);
                 if (!isOkResponse(response)) {
                     outcome.set(bucket, 'miss');
                     return;
@@ -870,13 +875,13 @@
             }
             const advance = Math.min(contiguous, lastFinal - bucketSeconds);
             consumedBucket = consumedBucket === null ? advance : Math.max(consumedBucket, advance);
-            const prevBucket = localStorage.getItem('mylibre.bucket');
-            const prevSeconds = localStorage.getItem('mylibre.bucketSeconds');
+            const prevBucket = localStorage.getItem(storageKey('bucket'));
+            const prevSeconds = localStorage.getItem(storageKey('bucketSeconds'));
             if (prevBucket !== String(consumedBucket)) {
-                localStorage.setItem('mylibre.bucket', String(consumedBucket));
+                localStorage.setItem(storageKey('bucket'), String(consumedBucket));
             }
             if (prevSeconds !== String(bucketSeconds)) {
-                localStorage.setItem('mylibre.bucketSeconds', String(bucketSeconds));
+                localStorage.setItem(storageKey('bucketSeconds'), String(bucketSeconds));
             }
         }
 
@@ -1808,7 +1813,7 @@
     overviewCanvas.addEventListener('pointercancel', endBrush);
 
     async function loadConfig() {
-        const response = await fetchLive('/status.json.asc');
+        const response = await fetchLive('status.json.asc');
         if (!isOkResponse(response)) {
             return;
         }
@@ -1825,7 +1830,7 @@
 
     async function syncLibreLinkLogin(snapshotLoginRequired) {
         try {
-            const response = await fetchLive('/api/librelink/status');
+            const response = await fetchLive('api/librelink/status');
             if (response.status === 404) {
                 librelinkLogin.classList.toggle('hidden', !snapshotLoginRequired);
                 return;
@@ -1852,8 +1857,8 @@
         let snapshotLoginRequired = false;
         try {
             const [currentRes, statusRes] = await Promise.all([
-                fetchLive('/current.json.asc'),
-                fetchLive('/status.json.asc'),
+                fetchLive('current.json.asc'),
+                fetchLive('status.json.asc'),
             ]);
             if (!isOkResponse(currentRes)) {
                 throw new Error('snapshot');
@@ -1877,7 +1882,7 @@
         } catch (error) {
             console.error(error);
             offline = true;
-            const cachedCurrent = lastKnown || JSON.parse(localStorage.getItem('mylibre.current') || 'null');
+            const cachedCurrent = lastKnown || JSON.parse(localStorage.getItem(storageKey('current')) || 'null');
             const cachedHistory = storedHistory();
             if (cachedCurrent) {
                 renderCurrent(cachedCurrent);
@@ -1937,7 +1942,7 @@
 
     async function enrollPublicKey(publicArmored) {
         try {
-            const response = await fetch('/api/keys', {
+            const response = await fetch('api/keys', {
                 method: 'POST',
                 cache: 'no-store',
                 headers: { 'Content-Type': 'application/json' },
@@ -1953,13 +1958,13 @@
             if (response.status === 403) {
                 return {
                     ok: false,
-                    error: 'HTTPS is required to send your public key to this host. Point a hostname at it and set MYLIBRE_SITE, or copy public.asc to data/keys/user-public.asc.',
+                    error: 'HTTPS is required to send your public key to this host. Point a hostname at it and set MYLIBRE_SITE.',
                 };
             }
             if (response.status === 409) {
                 return {
                     ok: false,
-                    error: payload.error || 'A different public key is already enrolled on this host.',
+                    error: payload.error || 'A different public key is already enrolled on this dashboard.',
                 };
             }
             if (!response.ok || !payload.ok) {
@@ -2164,7 +2169,7 @@
             if (!window.isSecureContext) {
                 throw new Error('LibreLinkUp login requires HTTPS.');
             }
-            const response = await fetch('/api/librelink/login', {
+            const response = await fetch('api/librelink/login', {
                 method: 'POST',
                 cache: 'no-store',
                 headers: { 'Content-Type': 'application/json' },
@@ -2369,8 +2374,8 @@
         }
     });
 
-    const storedBucket = Number(localStorage.getItem('mylibre.bucket'));
-    const storedBucketSeconds = Number(localStorage.getItem('mylibre.bucketSeconds'));
+    const storedBucket = Number(localStorage.getItem(storageKey('bucket')));
+    const storedBucketSeconds = Number(localStorage.getItem(storageKey('bucketSeconds')));
     if (Number.isFinite(storedBucket) && storedBucket > 0 && storedBucketSeconds > 0) {
         consumedBucket = storedBucket;
         bucketSeconds = storedBucketSeconds;

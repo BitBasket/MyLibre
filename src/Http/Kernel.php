@@ -7,12 +7,15 @@ namespace App\Http;
 /**
  * Public PHP API in front of the poller.
  *
- * The browser talks only to this process. LibreLinkUp login POSTs are
- * forwarded to AUTH_LISTEN on loopback. The poller never binds a public
- * socket. Credential POSTs (LibreLinkUp login and public-key enrollment)
- * are refused unless this is a direct loopback hit (local `composer start`)
- * or a trusted reverse proxy that already terminated TLS
- * (`X-Forwarded-Proto: https`).
+ * Self-host: one dashboard at the site root. The browser talks only to this
+ * process. LibreLinkUp login POSTs are forwarded to AUTH_LISTEN on loopback.
+ * The poller never binds a public socket. Credential POSTs (LibreLinkUp login
+ * and public-key enrollment) are refused unless this is a direct loopback hit
+ * (local `composer start`) or a trusted reverse proxy that already terminated
+ * TLS (`X-Forwarded-Proto: https`).
+ *
+ * There is no tenant API: `/api/tenants` does not exist and only the single
+ * root dashboard (`/api/keys`, `/api/librelink/*`) is served.
  */
 final class Kernel
 {
@@ -30,7 +33,15 @@ final class Kernel
     public function handle(array $server, string $body): array
     {
         $path = parse_url((string) ($server['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/';
+        // Collapse "." / ".." segments so the plaintext-snapshot deny below
+        // cannot be sidestepped as, say, "/./current.json".
+        $path = self::normalizePath($path);
         $method = strtoupper((string) ($server['REQUEST_METHOD'] ?? 'GET'));
+
+        // Self-host has no dashboard-creation endpoint.
+        if ($path === '/api/tenants') {
+            return self::json(404, ['ok' => false, 'error' => 'not found']);
+        }
 
         if (str_starts_with($path, '/api/keys')) {
             if ($this->keys === null) {
@@ -61,11 +72,17 @@ final class Kernel
             return ['status' => $status, 'headers' => $headers, 'body' => $responseBody];
         }
 
+        // Never serve a plaintext snapshot, even if an older deployment left
+        // one on disk: only the encrypted .asc form is reachable.
+        if (self::isPlaintextSnapshot($path)) {
+            return self::json(404, ['error' => 'not_found']);
+        }
+
         if ($path !== '/' && is_file($this->publicDir . $path)) {
             return ['passthrough' => true];
         }
 
-        if (preg_match('#^/(current|status|b/\d+)\.json(\.asc)?$#', $path) === 1) {
+        if (self::isSnapshotPath($path)) {
             return self::json(404, ['error' => 'not_found']);
         }
 
@@ -78,6 +95,43 @@ final class Kernel
             'headers' => ['Content-Type' => 'text/plain; charset=utf-8'],
             'body' => 'Not found',
         ];
+    }
+
+    public static function isPlaintextSnapshot(string $path): bool
+    {
+        return preg_match(
+            '#^/(current|status|history|history-[0-9]{8}|b/\d+)\.json$#i',
+            $path,
+        ) === 1;
+    }
+
+    public static function isSnapshotPath(string $path): bool
+    {
+        return preg_match(
+            '#^/(current|status|history|history-[0-9]{8}|b/\d+)\.json(\.asc)?$#i',
+            $path,
+        ) === 1;
+    }
+
+    /**
+     * Resolve "." and ".." segments in a request path. RFC 3986 dot-segment
+     * removal, without a filesystem round-trip.
+     */
+    private static function normalizePath(string $path): string
+    {
+        $segments = [];
+        foreach (explode('/', $path) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+            if ($segment === '..') {
+                array_pop($segments);
+                continue;
+            }
+            $segments[] = $segment;
+        }
+
+        return '/' . implode('/', $segments) . (str_ends_with($path, '/') && $segments !== [] ? '/' : '');
     }
 
     /**

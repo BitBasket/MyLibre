@@ -1,5 +1,6 @@
 ## v3.3.0
 
+* **[2026-09-14]** Single-user self-host snapshot model: the poller relays readings to `public/current.json.asc`, `public/status.json.asc`, and `public/b/<bucket>.json.asc`, and the dashboard enrolls its public key over `POST /api/keys`.
 * **[2026-09-14]** Encrypt published snapshots only to the enrolled user public key. No server-key fallback and no plaintext buckets.
 
 ## v3.2.0

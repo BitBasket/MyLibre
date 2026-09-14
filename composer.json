@@ -6,8 +6,8 @@
     "require": {
         "php": "^8.4",
         "ext-json": "*",
-        "phpexperts/simple-dto": "^3.9",
-        "phpexperts/rest-speaker": "^3.0"
+        "phpexperts/rest-speaker": "^3.0",
+        "phpexperts/simple-dto": "^3.9"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.5"
