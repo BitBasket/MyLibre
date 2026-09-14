@@ -64,22 +64,29 @@ final class App
     }
 
     /**
-     * The key the outbound dashboard snapshots are encrypted to. When
-     * `data/keys/user-public.asc` (or PGP_USER_PUBLIC_KEY_PATH) is readable it
-     * is used on its own, so the browser-generated private key never reaches
-     * the server. Otherwise the local keypair is used, as before.
+     * The only key outbound dashboard snapshots may be encrypted to: the
+     * user's public key (`data/keys/user-public.asc` or
+     * PGP_USER_PUBLIC_KEY_PATH), whose private half never reaches the server.
+     *
+     * There is deliberately no fallback to the server keypair. Every published
+     * artifact carries glucose (PHI), so a missing recipient key is a
+     * configuration error and must stop the write, never downgrade to a key
+     * the host itself can read.
      */
     public function recipientCrypto(): PgpCrypto
     {
-        $path = $this->config->userPublicKeyPath;
-        if ($path === '' || !is_readable($path)) {
-            $this->recipient = null;
-
-            return $this->crypto();
-        }
-
         if ($this->recipient !== null) {
             return $this->recipient;
+        }
+
+        $path = $this->config->userPublicKeyPath;
+        if ($path === '' || !is_readable($path)) {
+            throw new InvalidArgumentException(
+                'No user public key to encrypt dashboard snapshots to. '
+                . 'Unlock the dashboard so it POSTs its public key to /api/keys, or copy it to '
+                . ($path === '' ? 'PGP_USER_PUBLIC_KEY_PATH' : $path) . '. '
+                . 'Glucose files are never published under the server key.',
+            );
         }
 
         $crypto = new PgpCrypto($path);
@@ -95,7 +102,8 @@ final class App
 
     /**
      * Writes the static files the dashboard reads. History goes out as
-     * immutable, time-bucketed batches encrypted to the recipient key.
+     * immutable, time-bucketed batches encrypted to the user's public key.
+     * Throws when no user key is enrolled — nothing is published unencrypted.
      */
     public function bucketWriter(): BucketWriter
     {

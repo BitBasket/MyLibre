@@ -19,7 +19,7 @@ HIPAA “PHI” is a covered-entity term. A droplet you run for yourself is usua
 
 | Artifact | Cleartext? | What’s in it | Who can read it |
 | --- | --- | --- | --- |
-| `public/current.json.asc`, `public/b/<bucket>.json.asc` | No. Encrypted to **user public key** (if `data/keys/user-public.asc` exists). | Latest reading; history batches (mg/dL, trend, timestamp) | Only someone with the **user private key**. Droplet root cannot. |
+| `public/current.json.asc`, `public/b/<bucket>.json.asc` | No. Encrypted to **user public key**. | Latest reading; history batches (mg/dL, trend, timestamp) | Only someone with the **user private key**. Droplet root cannot. |
 | `public/status.json.asc` | No. Same recipient. | `bucketSeconds`, earliest/latest reading times, provider name. No mg/dL. | Same as above. |
 | `data/libre-session.json.asc` | No. Encrypted to the **server** keypair from `init-pgp.php`. | Abbott **Bearer token**, expiry, regional `baseUri`, account UUID, patient id | The droplet can, because it holds that private key and `PGP_PASSPHRASE`. Not the user’s GPG key. |
 | `data/keys/private.asc` + `PGP_PASSPHRASE` | Private key is passphrase-wrapped; passphrase is on the host. | Server key, **not** the user’s | Host admin / volume snapshot. Exists so the token file can be opened again. |
@@ -27,7 +27,7 @@ HIPAA “PHI” is a covered-entity term. A droplet you run for yourself is usua
 | `data/poll-state.json` | Yes. `0600`. | ~2000 sensor timestamps + first-seen time. **No glucose values.** | Host admin. Not in `.gitignore`. |
 | CLI stderr | Not a file unless you redirect it. | `Stored glucose reading N mg/dL`; sensor-loss and gap **timestamps**; Abbott **region** on login redirect | Whoever watches that terminal. Not written to disk by this code. `systemd/libre-glucose.service` *would* capture stderr in the journal if you enable it. |
 
-If `data/keys/user-public.asc` is **missing**, glucose files are encrypted to the **server** key instead. Then the same host that has `private.asc` can decrypt all history. That is the fallback in `App::recipientCrypto()`, not user-custody mode.
+If `data/keys/user-public.asc` is **missing**, the poller does not publish. There is no fallback to the server key and no plaintext mode.
 
 ## In the running process (unavoidable for a poller)
 

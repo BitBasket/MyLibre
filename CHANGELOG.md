@@ -1,3 +1,7 @@
+## v3.3.0
+
+* **[2026-09-14]** Encrypt published snapshots only to the enrolled user public key. No server-key fallback and no plaintext buckets.
+
 ## v3.2.0
 
 * **[2026-09-14 01:19:34 EEST]** Refetch catch-up buckets for interior graph holes.

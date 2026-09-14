@@ -12,12 +12,18 @@ use PHPUnit\Framework\TestCase;
 
 final class BucketWriterTest extends TestCase
 {
+    private const PASSPHRASE = 'test-passphrase';
+
     private string $directory;
+
+    /** @var array{crypto: \App\Security\PgpCrypto, recipient: \App\Security\PgpCrypto} */
+    private array $keys;
 
     protected function setUp(): void
     {
         $this->directory = sys_get_temp_dir() . '/mylibre-bucket-' . uniqid('', true);
         mkdir($this->directory, 0700, true);
+        $this->keys = PgpKeyFactory::shared(self::PASSPHRASE);
     }
 
     protected function tearDown(): void
@@ -32,9 +38,30 @@ final class BucketWriterTest extends TestCase
         @rmdir($this->directory);
     }
 
+    /**
+     * The writer always encrypts to the recipient, so assertions decrypt first.
+     *
+     * @return array<string, mixed>
+     */
+    private function decrypt(string $relativePath): array
+    {
+        $path = $this->directory . '/' . $relativePath;
+        $this->assertFileExists($path, $path . ' should have been published');
+        $cipher = (string) file_get_contents($path);
+        $this->assertStringContainsString('BEGIN PGP MESSAGE', $cipher);
+
+        // Recipient-only payloads are unsigned by design.
+        return json_decode($this->keys['crypto']->decrypt($cipher, self::PASSPHRASE, false), true);
+    }
+
+    private function writer(): BucketWriter
+    {
+        return new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory, $this->keys['recipient']);
+    }
+
     public function testWritesBatchCurrentAndStatus(): void
     {
-        $writer = new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory);
+        $writer = $this->writer();
         $reading = new GlucoseReadingDTO([
             'timestamp' => '2026-09-04T09:10:00Z',
             'glucoseMgDl' => 174,
@@ -46,36 +73,42 @@ final class BucketWriterTest extends TestCase
         $writer->writeCurrent($reading);
         $writer->writeStatus(1756978800, 1756979400);
 
-        $batch = json_decode((string) file_get_contents($this->directory . '/b/1756979400.json'), true);
+        $batch = $this->decrypt('b/1756979400.json.asc');
         $this->assertSame(1, $batch['schemaVersion']);
         $this->assertSame(1756979400, $batch['bucket']);
         $this->assertCount(1, $batch['readings']);
         $this->assertSame(174, $batch['readings'][0]['glucoseMgDl']);
         $this->assertSame('2026-09-04T09:10:00Z', $batch['readings'][0]['timestamp']);
 
-        $current = json_decode((string) file_get_contents($this->directory . '/current.json'), true);
+        $current = $this->decrypt('current.json.asc');
         $this->assertSame(174, $current['glucoseMgDl']);
 
-        $status = json_decode((string) file_get_contents($this->directory . '/status.json'), true);
+        $status = $this->decrypt('status.json.asc');
         $this->assertSame(2, $status['schemaVersion']);
+        $this->assertTrue($status['encrypted']);
         $this->assertSame(300, $status['bucketSeconds']);
         $this->assertSame(gmdate('Y-m-d\TH:i:s\Z', 1756978800), $status['earliestReadingAt']);
         $this->assertSame(gmdate('Y-m-d\TH:i:s\Z', 1756979400), $status['latestReadingAt']);
         $this->assertFalse($status['loginRequired']);
+
+        // Nothing plaintext ever reaches the served directory.
+        $this->assertFileDoesNotExist($this->directory . '/b/1756979400.json');
+        $this->assertFileDoesNotExist($this->directory . '/current.json');
+        $this->assertFileDoesNotExist($this->directory . '/status.json');
     }
 
     public function testEmptyBatchWritesNothing(): void
     {
-        $writer = new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory);
+        $writer = $this->writer();
         $writer->writeBatch(1756979400, []);
 
-        $this->assertFileDoesNotExist($this->directory . '/b/1756979400.json');
+        $this->assertFileDoesNotExist($this->directory . '/b/1756979400.json.asc');
         $this->assertFalse($writer->exists(1756979400));
     }
 
     public function testExistsReportsWrittenBatches(): void
     {
-        $writer = new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory);
+        $writer = $this->writer();
         $this->assertFalse($writer->exists(1756979400));
 
         $writer->writeBatch(1756979400, [new GlucoseReadingDTO([

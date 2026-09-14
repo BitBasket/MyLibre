@@ -8,7 +8,13 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 $app = App\Support\App::boot(dirname(__DIR__));
 $once = in_array('--once', $argv, true);
 
-$writer = $app->bucketWriter();
+try {
+    $writer = $app->bucketWriter();
+} catch (\Throwable $error) {
+    fwrite(STDERR, $error->getMessage() . "\n");
+    exit(1);
+}
+
 $poller = new App\Poller\GlucosePoller(
     $app->provider(),
     $app->pollState(),

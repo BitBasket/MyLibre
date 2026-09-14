@@ -16,18 +16,22 @@ use RuntimeException;
  *
  * History is written as immutable, time-bucketed batches:
  *
- *     b/<bucket>.json.enc      bucket = floor(epochSeconds / $bucketSeconds) * $bucketSeconds
+ *     b/<bucket>.json.asc      bucket = floor(epochSeconds / $bucketSeconds) * $bucketSeconds
  *
  * The bucket name is derived arithmetically by the browser, so there is no
  * manifest, no listing endpoint, and no request-time backend: a bucket URL that
  * does not exist simply 404s. The writer never reads a value back.
+ *
+ * Every payload carries glucose, so a recipient key is mandatory: the writer
+ * refuses to construct without one and never emits plaintext. The recipient is
+ * the user's public key, never the server keypair.
  */
 final class BucketWriter
 {
     public function __construct(
         private readonly Config $config,
         private readonly string $directory,
-        private ?PgpCrypto $crypto = null,
+        private PgpCrypto $crypto,
         private readonly string $passphrase = '',
         private readonly int $bucketSeconds = 300,
     ) {
@@ -36,9 +40,23 @@ final class BucketWriter
         }
     }
 
-    public function useRecipient(?PgpCrypto $crypto): void
+    /**
+     * Swaps the recipient, e.g. when the dashboard enrolls a key after the
+     * poller started. The recipient is always a real key; there is no way to
+     * clear it back to plaintext.
+     */
+    public function useRecipient(PgpCrypto $crypto): void
     {
         $this->crypto = $crypto;
+    }
+
+    /**
+     * Fingerprint of the key every payload is encrypted to, for startup logs
+     * and diagnostics. Never reveals a private key.
+     */
+    public function recipientFingerprint(): string
+    {
+        return $this->crypto->publicFingerprint();
     }
 
     public function writeCurrent(?GlucoseReadingDTO $latest): void
@@ -50,7 +68,7 @@ final class BucketWriter
     {
         $this->atomicWrite('status', [
             'ok' => true,
-            'encrypted' => $this->crypto !== null,
+            'encrypted' => true,
             'schemaVersion' => 2,
             'provider' => $this->config->glucoseProvider,
             'bucketSeconds' => $this->bucketSeconds,
@@ -83,7 +101,7 @@ final class BucketWriter
      */
     public function exists(int $bucket): bool
     {
-        return is_file($this->path('b/' . $bucket, $this->crypto !== null ? 'json.asc' : 'json'));
+        return is_file($this->path('b/' . $bucket, 'json.asc'));
     }
 
     /**
@@ -101,14 +119,6 @@ final class BucketWriter
     {
         $byBucket = array_filter($byBucket, static fn (array $readings): bool => $readings !== []);
         if ($byBucket === []) {
-            return;
-        }
-
-        if ($this->crypto === null) {
-            foreach ($byBucket as $bucket => $readings) {
-                $this->atomicWrite('b/' . $bucket, $this->batchPayload($bucket, $readings));
-            }
-
             return;
         }
 
@@ -180,16 +190,14 @@ final class BucketWriter
      */
     private function atomicWrite(string $relativePath, array $payload): void
     {
-        $path = $this->path($relativePath, $this->crypto !== null ? 'json.asc' : 'json');
+        $path = $this->path($relativePath, 'json.asc');
         $this->ensureDirectory(dirname($path));
 
         $json = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($this->crypto !== null) {
-            if ($this->crypto->hasPrivateKey() && $this->passphrase === '') {
-                throw new RuntimeException('PGP unlock is required before writing dashboard snapshots.');
-            }
-            $json = $this->crypto->encrypt($json, $this->passphrase);
+        if ($this->crypto->hasPrivateKey() && $this->passphrase === '') {
+            throw new RuntimeException('PGP unlock is required before writing dashboard snapshots.');
         }
+        $json = $this->crypto->encrypt($json, $this->passphrase);
 
         $tmp = $path . '.' . bin2hex(random_bytes(6)) . '.tmp';
         if (file_put_contents($tmp, $json, LOCK_EX) === false) {
@@ -201,7 +209,7 @@ final class BucketWriter
         }
 
         // Ciphertext may be served by nginx running as another user.
-        chmod($path, $this->crypto !== null ? 0644 : 0600);
+        chmod($path, 0644);
     }
 
     private function path(string $relativePath, string $extension): string

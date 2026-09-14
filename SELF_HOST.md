@@ -142,7 +142,7 @@ IP addresses do not get public certificates. Leave `MYLIBRE_SITE=:80` until you 
 4. If you already have a pair: paste or upload those files and the passphrase. The public half is enrolled the same way.
 5. Optionally: Install page as app / Create shortcut → Open as window.
 
-The poller's own server keypair (`data/keys/public.asc` + `private.asc`) still encrypts the LibreLinkUp session file. It is not the key the dashboard decrypts with once a user public key is enrolled.
+The poller's own server keypair (`data/keys/public.asc` + `private.asc`) still encrypts the LibreLinkUp session file. It is never the key that published glucose is encrypted to. Unlock the dashboard so the PWA POSTs to `/api/keys`, or copy `public.asc` to `data/keys/user-public.asc`, before the poller will write snapshots.
 
 ## Operate
 

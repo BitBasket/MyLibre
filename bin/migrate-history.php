@@ -34,7 +34,12 @@ if ($readings === []) {
     exit(0);
 }
 
-$writer = $app->bucketWriter();
+try {
+    $writer = $app->bucketWriter();
+} catch (\Throwable $error) {
+    fwrite(STDERR, $error->getMessage() . "\n");
+    exit(1);
+}
 
 // Group by the reading's own timestamp bucket. Bucket files are immutable, so
 // run this once, before the poller has written any buckets of its own.

@@ -17,6 +17,11 @@ final class ConfigFactory
         string $email = 'user@example.com',
         string $password = 'secret',
         string $authListen = '',
+        string $publicKeyPath = '',
+        string $privateKeyPath = '',
+        string $userPublicKeyPath = '',
+        string $unlockPassphrase = '',
+        string $publicPath = '',
     ): Config {
         return new Config(
             root: $root,
@@ -34,6 +39,12 @@ final class ConfigFactory
             sessionPath: $root . '/libre-session.json',
             abbottPollSeconds: 60,
             browserPollSeconds: 5,
+            publicKeyPath: $publicKeyPath,
+            privateKeyPath: $privateKeyPath,
+            unlockPassphrase: $unlockPassphrase,
+            userPublicKeyPath: $userPublicKeyPath,
+            bucketSeconds: 300,
+            publicPath: $publicPath,
             authListen: $authListen,
         );
     }

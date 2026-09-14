@@ -19,17 +19,24 @@ use App\Poller\PollState;
 use App\Poller\PollStateStore;
 use App\Support\Logger;
 use App\Tests\Support\ConfigFactory;
+use App\Tests\Support\PgpKeyFactory;
 use Carbon\Carbon;
 use PHPUnit\Framework\TestCase;
 
 final class GlucosePollerTest extends TestCase
 {
+    private const PASSPHRASE = 'test-passphrase';
+
     private string $directory;
+
+    /** @var array{crypto: \App\Security\PgpCrypto, recipient: \App\Security\PgpCrypto} */
+    private array $keys;
 
     protected function setUp(): void
     {
         $this->directory = sys_get_temp_dir() . '/mylibre-poller-' . uniqid('', true);
         mkdir($this->directory, 0700, true);
+        $this->keys = PgpKeyFactory::shared(self::PASSPHRASE);
     }
 
     protected function tearDown(): void
@@ -55,7 +62,7 @@ final class GlucosePollerTest extends TestCase
         return new GlucosePoller(
             $provider,
             $state ?? new PollStateStore($this->directory . '/state.json'),
-            new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory),
+            new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory, $this->keys['recipient']),
             new Logger($stream),
             60,
             $persistHistory,
@@ -72,13 +79,33 @@ final class GlucosePollerTest extends TestCase
     }
 
     /**
+     * Every published payload is encrypted to the recipient, so tests decrypt
+     * first. Ciphertext is recipient-only (unsigned), matching production.
+     *
+     * @return array<string, mixed>
+     */
+    private function decryptJson(string $relativePath): array
+    {
+        $path = $this->directory . '/' . $relativePath;
+        $this->assertFileExists($path, $path . ' should have been published');
+
+        return json_decode(
+            $this->keys['crypto']->decrypt((string) file_get_contents($path), self::PASSPHRASE, false),
+            true,
+        );
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     private function storedReadings(): array
     {
         $readings = [];
-        foreach (glob($this->directory . '/b/*.json') ?: [] as $file) {
-            $payload = json_decode((string) file_get_contents($file), true);
+        foreach (glob($this->directory . '/b/*.json.asc') ?: [] as $file) {
+            $payload = json_decode(
+                $this->keys['crypto']->decrypt((string) file_get_contents($file), self::PASSPHRASE, false),
+                true,
+            );
             foreach ($payload['readings'] ?? [] as $reading) {
                 $readings[$reading['timestamp']] = $reading;
             }
@@ -144,11 +171,14 @@ final class GlucosePollerTest extends TestCase
      */
     private function bucketReadings(int $bucket): array
     {
-        $path = $this->directory . '/b/' . $bucket . '.json';
+        $path = $this->directory . '/b/' . $bucket . '.json.asc';
         if (!is_file($path)) {
             return [];
         }
-        $payload = json_decode((string) file_get_contents($path), true);
+        $payload = json_decode(
+            $this->keys['crypto']->decrypt((string) file_get_contents($path), self::PASSPHRASE, false),
+            true,
+        );
 
         return $payload['readings'] ?? [];
     }
@@ -358,7 +388,7 @@ final class GlucosePollerTest extends TestCase
         Carbon::setTestNow('2026-09-04T09:10:00Z');
         $this->poller($this->replayProvider([$reading], $reading), fopen('php://memory', 'ab'))->poll();
 
-        $status = json_decode((string) file_get_contents($this->directory . '/status.json'), true);
+        $status = $this->decryptJson('status.json.asc');
         $this->assertSame('2026-09-04T09:10:00Z', $status['latestReadingAt']);
     }
 
@@ -498,7 +528,7 @@ final class GlucosePollerTest extends TestCase
         $poller = $this->poller($provider, fopen('php://memory', 'ab'), null, false);
         $this->assertSame(60, $poller->poll(30));
         $this->assertSame(120, $poller->poll(60));
-        $status = json_decode((string) file_get_contents($this->directory . '/status.json'), true);
+        $status = $this->decryptJson('status.json.asc');
         $this->assertTrue($status['loginRequired']);
     }
 
@@ -543,7 +573,7 @@ final class GlucosePollerTest extends TestCase
         $this->poller($provider, fopen('php://memory', 'ab'), null, false)->run(once: true);
 
         $this->assertSame(0, $provider->historyCalls);
-        $status = json_decode((string) file_get_contents($this->directory . '/status.json'), true);
+        $status = $this->decryptJson('status.json.asc');
         $this->assertTrue($status['loginRequired']);
     }
 
@@ -597,8 +627,8 @@ final class GlucosePollerTest extends TestCase
         Carbon::setTestNow('2026-09-04T09:10:00Z');
         $this->poller($provider, fopen('php://memory', 'ab'))->poll();
 
-        $current = json_decode((string) file_get_contents($this->directory . '/current.json'), true);
-        $status = json_decode((string) file_get_contents($this->directory . '/status.json'), true);
+        $current = $this->decryptJson('current.json.asc');
+        $status = $this->decryptJson('status.json.asc');
         $this->assertSame(174, $current['glucoseMgDl']);
         $this->assertSame(300, $status['bucketSeconds']);
         $this->assertFalse($status['loginRequired']);
@@ -809,7 +839,7 @@ final class GlucosePollerTest extends TestCase
         $first = new GlucosePoller(
             $failing,
             $state,
-            new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory),
+            new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory, $this->keys['recipient']),
             new Logger(fopen('php://memory', 'ab')),
             60,
         );
@@ -818,7 +848,7 @@ final class GlucosePollerTest extends TestCase
         $restarted = new GlucosePoller(
             $this->replayProvider([$backlog, $current], $current),
             $state,
-            new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory),
+            new BucketWriter(ConfigFactory::make(provider: 'mock'), $this->directory, $this->keys['recipient']),
             new Logger(fopen('php://memory', 'ab')),
             60,
         );
