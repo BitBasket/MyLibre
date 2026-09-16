@@ -6,17 +6,17 @@ MyLibre is a local-first glucose dashboard. A PHP 8.4 process polls LibreLinkUp 
 Libre sensor → LibreLink app → LibreLinkUp → LibreLinkUpProvider
                                       → GlucosePoller → encrypted static snapshots
                                                         ↓
-                         Caddy/nginx → PHP API → browser PWA
+                         Caddy → PHP API → browser PWA
                                       ↘ loopback login intake
 ```
 
 ## Runtime components
 
-`src/Support/App.php` is the composition root. It loads `.env`, constructs logging and cryptography, selects `GLUCOSE_PROVIDER` (`librelinkup` or `mock`), and exposes the single shared `provider()`, `pollState()`, `bucketWriter()`, `recipientCrypto()`, and `authIntake()` instances. There is one `App\Poller\GlucosePoller`, built in `bin/poll-glucose.php`.
+`App\Support\App` (from `bitbasket/mycgm-core`) is the composition root. It loads `.env`, constructs logging and cryptography, selects `GLUCOSE_PROVIDER` (`librelinkup` or `mock`), and exposes the single shared `provider()`, `pollState()`, `bucketWriter()`, `recipientCrypto()`, and `authIntake()` instances. There is one `App\Poller\GlucosePoller`, built in `bin/poll-glucose.php`.
 
-`bin/serve.php` supervises the public PHP HTTP server and a poller child process. `Kernel` handles API requests and passes static assets through; the poll loop periodically fetches provider data and writes snapshots. `bin/poll-glucose.php` is the poller launcher and supports `--once`; `composer poll` invokes it. The provider contract emits `GlucoseReadingDTO` values, keeping Abbott field names inside `src/LibreLink/`. The mock provider supplies a 24-hour five-minute sine wave for development and tests.
+`bin/serve.php` supervises the public PHP HTTP server and a poller child process. The engine `Kernel` handles API requests and passes static assets through; the poll loop periodically fetches provider data and writes snapshots. `bin/poll-glucose.php` is the poller launcher and supports `--once`; `composer poll` invokes it. The provider contract emits `GlucoseReadingDTO` values, keeping Abbott field names inside the engine `src/LibreLink/`. The mock provider supplies a 24-hour five-minute sine wave for development and tests.
 
-The browser application is static content in `public/`: `index.html`, `app.js`, `app.css`, `pgp.js`, OpenPGP and chart libraries, a web manifest, icons, and a service worker. It fetches status, current, and arithmetic history URLs, decrypts them with the browser-held private key, deduplicates by timestamp, and derives display age/stale state. There is no history query or manifest endpoint.
+The browser application is the engine PWA in `vendor/bitbasket/mycgm-core/pwa/` (`bin/link-pwa.php` symlinks it into `public/`): `index.html`, `app.js`, `app.css`, `pgp.js`, OpenPGP and chart libraries, a web manifest, icons, and a service worker. It fetches status, current, and arithmetic history URLs, decrypts them with the browser-held private key, deduplicates by timestamp, and derives display age/stale state. There is no history query or manifest endpoint.
 
 ## HTTP and trust boundary
 
@@ -57,8 +57,8 @@ The live path uses `data/keys/user-public.asc` (the enrolled recipient), the enc
 
 ## Deployment and verification
 
-For local use, `composer start`/ `composer serve` runs PHP's built-in server and the combined API/poller; `run-nginx.sh` can put nginx in front of it. `systemd/libre-glucose.service` provides a user-service option.
+For local use, `composer start`/ `composer serve` runs PHP's built-in server and the combined API/poller. `./run-server.sh` wraps `docker compose up -d --build` for the containerized stack, and `systemd/libre-glucose.service` provides a user-service option.
 
-Docker Compose has a `poller` service based on `php:8.4-cli-bookworm` with GnuPG and Composer, and a Caddy `web` service. The poller mounts `./data` and `./public`, exposes port 8765 only on the Compose network, and has a health check based on current/status snapshots. Caddy serves `public` read-only, handles HTTP/HTTPS and certificates, and proxies API requests. The entrypoint creates data directories and generates server keys before starting `bin/serve.php`.
+Docker Compose has a `poller` service based on `php:8.4-cli-bookworm` with GnuPG and Composer, and a Caddy `web` service. The poller mounts `./data` and `./public`, exposes port 8765 only on the Compose network, and has a health check that the public API is listening (so `/api/keys` is reachable before any snapshots exist). Caddy serves `public` read-only, handles HTTP/HTTPS and certificates, and proxies API requests. The entrypoint creates data directories and generates server keys before starting `bin/serve.php`.
 
 LibreLinkUp authentication follows regional redirects, caches the bearer session encrypted, and retries one 401 once. Poll failures use backoff and leave the last successful snapshots available. Redacted UTC stderr logs report freshness and gaps; readings older than 180 seconds produce `SENSOR LOST`. PHPUnit tests under `tests/` run with `composer test`.

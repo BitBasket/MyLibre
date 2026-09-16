@@ -18,7 +18,7 @@ Libre 2
 
 ## Architecture
 
-Abbott-specific URLs, headers, region names, account IDs, and JSON field names stay inside `src/LibreLink/`. The rest of the app only sees `GlucoseReadingDTO` values from `phpexperts/simple-dto`.
+Abbott-specific URLs, headers, region names, account IDs, and JSON field names stay inside `bitbasket/mycgm-core` (`src/LibreLink/`). This app requires that Composer library (resolved from `https://github.com/BitBasket/mycgm-core.git`). The rest of the app only sees `GlucoseReadingDTO` values from `phpexperts/simple-dto`.
 
 `phpexperts/rest-speaker` is the only HTTP client used against Abbott. Login uses `RESTSpeaker` + `NoAuth`. Authenticated calls use `LibreLinkUpAuth`, a custom `RESTAuth` strategy that injects the Bearer token, SHA-256 `Account-Id`, product, and client version. RESTSpeaker is not passed into repositories or DTOs.
 
@@ -47,6 +47,8 @@ composer install
 cp .env.example .env
 php bin/init-pgp.php
 ```
+
+`composer install` pulls the engine library `bitbasket/mycgm-core` (`dev-trunk`) from `https://github.com/BitBasket/mycgm-core.git` via Composer. Do not copy the engine `src/` or `pwa/` into this tree.
 
 Credentials belong only in `.env`. That file is gitignored.
 

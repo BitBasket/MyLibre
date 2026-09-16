@@ -20,3 +20,13 @@
 /coverage/
 /.phpunit.cache
 /phpunit.result.cache
+# Engine PWA is linked from vendor/bitbasket/mycgm-core/pwa by bin/link-pwa.php
+/public/app.js
+/public/app.css
+/public/pgp.js
+/public/service-worker.js
+/public/index.html
+/public/manifest.webmanifest
+/public/icons
+/public/vendor
+composer.lock

@@ -22,12 +22,13 @@ Two containers:
 | Service | Role |
 | --- | --- |
 | `poller` | Logs into LibreLinkUp about once a minute, stores history, writes `public/*.json.asc` |
-| `web` | Caddy serves `public/` and, with a hostname, obtains a Let's Encrypt certificate |
+| `web` | Caddy serves `public/` snapshots plus the engine PWA from `vendor/bitbasket/mycgm-core/pwa/`, and with a hostname obtains a Let's Encrypt certificate |
 
 Host directories that must persist:
 
 - `./data` — PGP keys, encrypted glucose store, encrypted LibreLinkUp session
-- `./public` — PWA assets plus encrypted dashboard snapshots
+- `./public` — encrypted dashboard snapshots (PWA is `vendor/bitbasket/mycgm-core/pwa/`)
+- `./vendor/bitbasket/mycgm-core/pwa` — engine dashboard (from Composer)
 - `.env` — LibreLinkUp credentials and `PGP_PASSPHRASE` (gitignored)
 
 ## Requirements
@@ -220,7 +221,7 @@ Passwords, complete tokens, Authorization headers, and credential cookies are no
 
 ## Laptop / no Docker
 
-For a local-only checkout without containers, see `README.md` (`composer install`, `php bin/init-pgp.php`, `composer poll`, `composer serve` or `./run-nginx.sh`). That path binds the dashboard to `127.0.0.1` by default.
+For a local-only checkout without containers, see `README.md` (`composer install`, `php bin/init-pgp.php`, `composer poll`, `composer serve`). That path binds the dashboard to `127.0.0.1` by default. With Docker, `./run-server.sh` starts this same stack locally.
 
 ## Limits
 
