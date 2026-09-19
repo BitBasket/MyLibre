@@ -210,6 +210,13 @@ The API is unofficial and can change without notice. Client `product`/`version` 
 
 ## Recent Changes
 
+#### v4.0.0
+
+* **[2026-09-16 03:17:00 EEST]** Extracted the engine and PWA into path-required bitbasket/mycgm-core.
+* **[2026-09-14 11:19:59 EEST]** Make the self-host app single-tenant again: one dashboard at /
+* **[2026-09-14 07:19:43 EEST]** Rewrite ARCHITECTURE.md as a whole-system overview.
+* **[2026-09-14 08:04:46 EEST]** Encrypt published snapshots only to the enrolled user public key.
+
 #### v3.2.0
 
 * **[2026-09-14 01:19:34 EEST]** Refetch catch-up buckets for interior graph holes.
