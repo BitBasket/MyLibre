@@ -1,13 +1,18 @@
 {
-    "name": "mylibre/glucose-dashboard",
-    "description": "Local-first LibreLinkUp glucose dashboard for Linux",
+    "name": "bitbasket/mylibre",
+    "description": "One-box self-host LibreLink glucose dashboard",
     "type": "project",
     "license": "MIT",
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/BitBasket/mycgm-core.git"
+        }
+    ],
     "require": {
         "php": "^8.4",
         "ext-json": "*",
-        "phpexperts/simple-dto": "^3.9",
-        "phpexperts/rest-speaker": "^3.0"
+        "bitbasket/mycgm-core": "dev-trunk"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.5"
@@ -28,7 +33,9 @@
         "migrate-sqlite": "php bin/migrate-sqlite.php",
         "poll": "php bin/poll-glucose.php",
         "serve": "php bin/serve.php",
-        "start": "php bin/serve.php"
+        "start": "php bin/serve.php",
+        "post-install-cmd": ["php bin/link-pwa.php"],
+        "post-update-cmd": ["php bin/link-pwa.php"]
     },
     "config": {
         "sort-packages": true

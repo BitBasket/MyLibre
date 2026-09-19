@@ -71,10 +71,17 @@ if ($provider instanceof LibreLinkUpProvider) {
     $provider->login($email, $password, $patientId);
 }
 
+try {
+    $writer = $app->bucketWriter();
+} catch (\Throwable $error) {
+    fwrite(STDERR, $error->getMessage() . "\n");
+    exit(1);
+}
+
 $poller = new GlucosePoller(
     $provider,
     $app->pollState(),
-    $app->bucketWriter(),
+    $writer,
     $app->logger,
     $app->config->abbottPollSeconds,
     persistHistory: true,

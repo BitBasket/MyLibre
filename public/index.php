@@ -4,15 +4,24 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
-$config = App\Support\Config::fromEnv(dirname(__DIR__));
-$kernel = new App\Http\Kernel($config->publicPath, $config->authListen);
+$root = dirname(__DIR__);
+$config = App\Support\Config::fromEnv($root);
+$kernel = new App\Http\Kernel(
+    $config->publicPath,
+    $config->authListen,
+    new App\Http\KeyEnrollmentHandler($config->userPublicKeyPath),
+);
 $result = $kernel->handle($_SERVER, file_get_contents('php://input') ?: '');
 
 if (($result['passthrough'] ?? false) === true) {
     $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+    $pwa = App\Http\Kernel::pwaDir($root);
     $file = $path === '/' || $path === '/index.html'
         ? $config->publicPath . '/index.html'
         : $config->publicPath . $path;
+    if (!is_file($file) && is_file($pwa . ($path === '/' || $path === '/index.html' ? '/index.html' : $path))) {
+        $file = $pwa . ($path === '/' || $path === '/index.html' ? '/index.html' : $path);
+    }
     if (!is_file($file)) {
         http_response_code(404);
         header('Content-Type: text/plain; charset=utf-8');

@@ -10,13 +10,16 @@
 #
 # The poller container also runs the PHP API (loopback AUTH_LISTEN plus
 # /api/keys enrollment). Caddy serves ./public and reverse-proxies /api/*
-# to that API. ./data holds the encrypted store, session, and PGP keys.
+# to that API. ./data holds the PGP keys, the encrypted LibreLinkUp session,
+# and the poll-state file.
 
 name: mylibre
 
 services:
   poller:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
       - .env
@@ -44,8 +47,13 @@ services:
   web:
     image: caddy:2-alpine
     restart: unless-stopped
+    # Wait for the poller's PHP API to listen before serving the dashboard, so
+    # the dashboard's POST /api/keys never lands on a not-yet-ready API (Caddy
+    # would answer an empty 502, which the PWA reports as "Could not enroll the
+    # public key.").
     depends_on:
-      - poller
+      poller:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
@@ -54,6 +62,11 @@ services:
       MYLIBRE_SITE: ${MYLIBRE_SITE:-:80}
     volumes:
       - ./public:/srv:ro
+      # bin/link-pwa.php symlinks the engine PWA into public/ with relative
+      # targets (../vendor/bitbasket/mycgm-core/pwa/...). Caddy's root is /srv,
+      # so ../vendor resolves to /vendor inside the container: mount the PWA
+      # there or every symlink dangles (404 assets, 404 on /).
+      - ./vendor/bitbasket/mycgm-core/pwa:/vendor/bitbasket/mycgm-core/pwa:ro
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config

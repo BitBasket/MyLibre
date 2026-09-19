@@ -44,21 +44,12 @@ $shutdown = static function () use (&$children): void {
 };
 register_shutdown_function($shutdown);
 
-if ($config->isLibreLinkUpProvider() && $listen !== '') {
-    if (intakeIsUp($listen)) {
-        fwrite(STDOUT, "Using existing poller on {$listen}\n");
-    } else {
-        $children[] = spawn([PHP_BINARY, $root . '/bin/poll-glucose.php'], $root);
-        if (!waitForIntake($listen, 10.0)) {
-            fwrite(STDERR, "Poller did not bind AUTH_LISTEN {$listen}\n");
-            exit(1);
-        }
-        fwrite(STDOUT, "Poller listening on {$listen}\n");
-    }
-} else {
-    $children[] = spawn([PHP_BINARY, $root . '/bin/poll-glucose.php'], $root);
-}
-
+// Bring the public API up first, before the poller. /api/keys is what lets a
+// fresh install enroll its user public key, and the poller cannot publish
+// anything until that key exists — so the enrolment endpoint must never wait on
+// the poller. Starting the poller first left /api/keys answering 502 (an empty
+// body) for the whole of the poller's boot, which the dashboard reports as the
+// generic "Could not enroll the public key."
 $server = spawn(
     [PHP_BINARY, '-S', $host . ':' . $port, '-t', $public, $router],
     $public,
@@ -68,6 +59,24 @@ $children[] = $server;
 fwrite(STDOUT, "API http://{$host}:{$port}/\n");
 if (!$config->bindsLocalhostOnly()) {
     fwrite(STDERR, "HOST is not loopback. LibreLinkUp login will be refused without HTTPS in front.\n");
+}
+
+if ($config->isLibreLinkUpProvider() && $listen !== '') {
+    if (intakeIsUp($listen)) {
+        fwrite(STDOUT, "Using existing poller on {$listen}\n");
+    } else {
+        $children[] = spawn([PHP_BINARY, $root . '/bin/poll-glucose.php'], $root);
+        if (!waitForIntake($listen, 10.0)) {
+            // A slow or wedged intake must not take /api/keys (or the whole
+            // stack) down with it: keep the API serving for enrollment and let
+            // the poller keep trying. Only LibreLinkUp login needs the intake.
+            fwrite(STDERR, "Poller did not bind AUTH_LISTEN {$listen} yet; continuing, /api/keys stays up.\n");
+        } else {
+            fwrite(STDOUT, "Poller listening on {$listen}\n");
+        }
+    }
+} else {
+    $children[] = spawn([PHP_BINARY, $root . '/bin/poll-glucose.php'], $root);
 }
 
 while (true) {

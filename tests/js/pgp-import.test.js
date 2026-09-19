@@ -51,8 +51,9 @@ function loadPgpVault() {
     sandbox.global = sandbox;
     sandbox.globalThis = sandbox;
     vm.createContext(sandbox);
-    vm.runInContext(fs.readFileSync(path.join(root, 'public/vendor/openpgp.min.js'), 'utf8'), sandbox);
-    vm.runInContext(fs.readFileSync(path.join(root, 'public/pgp.js'), 'utf8'), sandbox);
+    const pwa = path.join(root, 'vendor/bitbasket/mycgm-core/pwa');
+    vm.runInContext(fs.readFileSync(path.join(pwa, 'vendor/openpgp.min.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(path.join(pwa, 'pgp.js'), 'utf8'), sandbox);
     return { openpgp: sandbox.openpgp, PgpVault: sandbox.PgpVault };
 }
 

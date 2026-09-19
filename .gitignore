@@ -6,11 +6,27 @@
 /data/*.sqlite-*
 /data/keys/
 /data/*.asc
-/public/current.json
-/public/history.json
-/public/history-*.json
-/public/status.json
 /public/*.asc
 /public/b/
+# Cleartext snapshot names are never produced any more; ignore them anyway so a
+# leftover from an older deployment can never be committed.
+/public/current.json
+/public/status.json
+/public/history.json
+/public/history-*.json
+# Plaintext history exports / legacy inputs (PHI). .dockerignore lists these too.
+/mylibre.history.json
+/history.json
+/coverage/
 /.phpunit.cache
 /phpunit.result.cache
+# Engine PWA is linked from vendor/bitbasket/mycgm-core/pwa by bin/link-pwa.php
+/public/app.js
+/public/app.css
+/public/pgp.js
+/public/service-worker.js
+/public/index.html
+/public/manifest.webmanifest
+/public/icons
+/public/vendor
+composer.lock

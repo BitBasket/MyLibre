@@ -22,12 +22,13 @@ Two containers:
 | Service | Role |
 | --- | --- |
 | `poller` | Logs into LibreLinkUp about once a minute, stores history, writes `public/*.json.asc` |
-| `web` | Caddy serves `public/` and, with a hostname, obtains a Let's Encrypt certificate |
+| `web` | Caddy serves `public/` snapshots plus the engine PWA from `vendor/bitbasket/mycgm-core/pwa/`, and with a hostname obtains a Let's Encrypt certificate |
 
 Host directories that must persist:
 
 - `./data` — PGP keys, encrypted glucose store, encrypted LibreLinkUp session
-- `./public` — PWA assets plus encrypted dashboard snapshots
+- `./public` — encrypted dashboard snapshots (PWA is `vendor/bitbasket/mycgm-core/pwa/`)
+- `./vendor/bitbasket/mycgm-core/pwa` — engine dashboard (from Composer)
 - `.env` — LibreLinkUp credentials and `PGP_PASSPHRASE` (gitignored)
 
 ## Requirements
@@ -136,13 +137,13 @@ IP addresses do not get public certificates. Leave `MYLIBRE_SITE=:80` until you 
 
 ## 5. Unlock and install the PWA
 
-1. Open the HTTPS site in Chrome (or another Chromium browser).
+1. Open the HTTPS site in Chrome (or another Chromium browser). This host serves a single dashboard at the root; bookmark `/`.
 2. Choose **Create a new keypair** (recommended) or **I have a keypair**.
-3. If creating: download both `public.asc` and `private.asc`, tick the confirmation, and continue. The PWA sends **only the public key** to `/api/keys`, which stores it as `data/keys/user-public.asc`. The private key stays in the browser.
+3. If creating: download both `public.asc` and `private.asc`, tick the confirmation, and continue. The PWA sends **only the public key** to `/api/keys`. The private key stays in the browser.
 4. If you already have a pair: paste or upload those files and the passphrase. The public half is enrolled the same way.
 5. Optionally: Install page as app / Create shortcut → Open as window.
 
-The poller's own server keypair (`data/keys/public.asc` + `private.asc`) still encrypts the LibreLinkUp session file. It is not the key the dashboard decrypts with once a user public key is enrolled.
+The poller's own server keypair (`data/keys/public.asc` + `private.asc`) encrypts the LibreLinkUp session file (`data/libre-session.json.asc`). It is never the key that published glucose is encrypted to.
 
 ## Operate
 
@@ -202,6 +203,8 @@ The password is never written to the session file.
 
 **Containers restart, poller log says keys or passphrase are wrong.** `PGP_PASSPHRASE` must unlock `data/keys/private.asc`. If you generated a new pair by starting without keys, you will not be able to read an older `glucose.json.asc`. Restore the original keys, or start a new store.
 
+**Dashboard is empty after unlock.** The poller publishes nothing until a user public key is enrolled. Unlock `/` so the PWA POSTs to `/api/keys`, or copy `public.asc` to `data/keys/user-public.asc`.
+
 **Dashboard is stale or disconnected.** The PWA reads `public/current.json.asc`. Age over ~3 minutes warns; over ~10 minutes is treated as disconnected. Confirm `docker compose ps` shows `poller` running, the poller log is fetching, and LibreLink still has an active sensor session. The poller logs `SENSOR LOST` / `SENSOR RESTORED` and `READING GAP`. It never invents missing points. Abbott `graphData` is typically only about 15 minutes, so a longer outage cannot be backfilled.
 
 **Authentication failed.** Check `LIBRELINK_EMAIL` / `LIBRELINK_PASSWORD`, accept pending terms in the official app, and keep `LIBRELINK_REGION=AUTO`. If Abbott starts returning 403, raise `LIBRELINK_CLIENT_VERSION`.
@@ -218,7 +221,7 @@ Passwords, complete tokens, Authorization headers, and credential cookies are no
 
 ## Laptop / no Docker
 
-For a local-only checkout without containers, see `README.md` (`composer install`, `php bin/init-pgp.php`, `composer poll`, `composer serve` or `./run-nginx.sh`). That path binds the dashboard to `127.0.0.1` by default.
+For a local-only checkout without containers, see `README.md` (`composer install`, `php bin/init-pgp.php`, `composer poll`, `composer serve`). That path binds the dashboard to `127.0.0.1` by default. With Docker, `./run-server.sh` starts this same stack locally.
 
 ## Limits
 
