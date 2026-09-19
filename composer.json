@@ -12,7 +12,8 @@
     "require": {
         "php": "^8.4",
         "ext-json": "*",
-        "bitbasket/mycgm-core": "dev-trunk"
+        "bitbasket/mycgm-core": "dev-trunk",
+        "phpexperts/csv-speaker": "^1.4"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.5"
